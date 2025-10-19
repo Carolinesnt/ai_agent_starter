@@ -1,0 +1,8 @@
+permission_id,permission_code,permission_group,permission_desc
+1,update_data_personal,Data Management,Permission to update personal data
+2,request_history_and_status,Request Management,Permission to request history and status
+3,manage_consent,Consent Management,Permission to manage consent
+4,attachment,Request Management,Permission to attach document for update personal data
+5,export_pdf,Data Management,Permission to export personal data
+6,rbac_admin,user_management,Allows full access to manage roles permissions and user access
+21,Pengujian kedua,Testing,pengujian permission kedua di update

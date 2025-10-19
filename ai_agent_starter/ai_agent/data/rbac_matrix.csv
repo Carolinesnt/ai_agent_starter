@@ -1,0 +1,9 @@
+role_name,permission_code,permission_group,permission_desc
+Employee,request_history_and_status,Request Management,Permission to request history and status
+Employee,attachment,Request Management,Permission to attach document for update personal data
+Employee,export_pdf,Data Management,Permission to export personal data
+Employee,update_data_personal,Data Management,Permission to update personal data
+Uji Coba Update,Pengujian kedua,Testing,pengujian permission kedua di update
+Admin_HC,manage_consent,Consent Management,Permission to manage consent
+Admin_HC,rbac_admin,user_management,Allows full access to manage roles permissions and user access
+Admin_HC,request_history_and_status,Request Management,Permission to request history and status

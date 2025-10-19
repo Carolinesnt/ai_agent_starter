@@ -1,0 +1,30 @@
+# config/auth.yaml
+base_url: "http://localhost:8080"  # ✅ sama dengan agent.yaml
+
+roles:
+  Admin_HC:
+    login_endpoint: /auth/login  # ✅ atau /api/v1/auth/login
+    credentials:
+      username: "admin@hc.com"
+      password: "admin123"  # ✅ lokal boleh hardcode
+    
+  Employee:
+    login_endpoint: /auth/login
+    credentials:
+      username: "employee@test.com"
+      password: "employee123"
+  
+  # ✅ Tambah test users
+  Employee_2:  # untuk test IDOR
+    login_endpoint: /auth/login
+    credentials:
+      username: "employee2@test.com"
+      password: "employee123"
+
+# ✅ Token settings
+token:
+  type: "Bearer"  # atau "JWT"
+  header: "Authorization"
+  refresh_endpoint: /auth/refresh
+  cache_enabled: true
+  cache_ttl: 3600  # 1 jam

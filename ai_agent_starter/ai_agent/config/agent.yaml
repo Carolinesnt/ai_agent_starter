@@ -1,0 +1,30 @@
+base_url: "http://localhost:8080"
+timeout_s: 20
+retries: 1
+depth: 1
+mode: "development"
+concurrency: 2
+artifacts_dir: "ai_agent/runs/artifacts"
+log_dir: "ai_agent/runs/logs"
+dry_run: false
+
+# LLM features (privacy-first):
+llm:
+  triage_enabled: true          # summarize findings via LLM (redacted input)
+  followups_enabled: true       # propose additional follow-up tests via LLM
+  redact_enabled: true          # redact content before sending to LLM
+  redact_max_chars: 1000        # cap any text snippets sent to LLM
+
+# Auto-discovery of resource IDs via list endpoints (simple patterns only)
+discovery:
+  enabled: true
+  max_per_role: 10
+
+# Optional: seed fixtures to create resources and capture IDs per role
+# fixtures:
+#   - role: "Employee"
+#     method: "POST"
+#     path: "/employee/change-request"
+#     json: { }
+#     id_json_path: "data.id_change_request"  # path to ID in response JSON
+#     store_as: "change_request"

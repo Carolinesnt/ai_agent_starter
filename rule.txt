@@ -1,0 +1,9 @@
+Terapkan decision rules ini di evaluator:
+
+Valid deny: 401/403 ⇒ TN.
+
+404 milik orang lain ⇒ TN (catat sebagai deny by not-found, bukan vuln).
+
+5xx ⇒ label stability/error, bukan BAC.
+
+2xx tanpa efek samping pada aksi tulis/hapus ⇒ TN.

@@ -1,0 +1,4 @@
+role_id,role_name,role_desc
+1,Admin_HC,Human Capital Admin Role
+2,Employee,Employee Role with limited permissions
+13,Uji Coba Update,Ini Testing Update

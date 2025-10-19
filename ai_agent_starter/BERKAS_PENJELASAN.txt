@@ -1,0 +1,97 @@
+Panduan Singkat Struktur Proyek: ai_agent_starter
+
+Tujuan berkas ini: menjelaskan fungsi/ kegunaan setiap file dan folder penting agar mudah menavigasi proyek.
+
+========================
+Level Root Proyek
+========================
+- .venv/ : Virtual environment (lokal). Aman diabaikan/di-.gitignore.
+- ai_agent_starter/ : Folder utama kode agen (paket Python `ai_agent`).
+- information.txt : Catatan/ informasi bebas (bukan bagian logika agen).
+- rule.txt : Catatan aturan/konvensi (bukan bagian logika agen).
+
+=================================
+Konfigurasi & Dependensi (root)
+=================================
+- ai_agent_starter/requirements.txt : Daftar dependensi Python (requests, pyyaml, pandas, dotenv, rich, openai, google-generativeai).
+- ai_agent_starter/.env : Contoh variabel lingkungan (API_BASE_URL, kredensial user uji, kunci LLM, logging). Jangan commit kredensial asli.
+
+=================================
+Paket `ai_agent` (kode utama)
+=================================
+- ai_agent_starter/ai_agent/__init__.py : Penanda paket (kosong, tidak ada logika).
+
+-- Folder config (konfigurasi agen) --
+- ai_agent_starter/ai_agent/config/agent.yaml : Konfigurasi run (base_url, timeout, retries, depth, concurrency, lokasi artifacts/log, fitur LLM, discovery ID, fixtures).
+- ai_agent_starter/ai_agent/config/auth.yaml : Konfigurasi autentikasi per peran/role (endpoint login, payload, header/token). Bisa ditimpa via ENV.
+- ai_agent_starter/ai_agent/config/policy.yaml : Aturan RBAC per role (allowed_endpoints, critical_deny) untuk mengevaluasi ekspektasi akses.
+- ai_agent_starter/ai_agent/config/policy.json : Alternatif format JSON bila dikonversi (opsional).
+
+-- Folder data (sumber data uji) --
+- ai_agent_starter/ai_agent/data/openapi.json : Spesifikasi OpenAPI; sumber daftar endpoint dan deteksi placeholder {id}.
+- ai_agent_starter/ai_agent/data/roles.csv : Master daftar role.
+- ai_agent_starter/ai_agent/data/permissions.csv : Master daftar permission.
+- ai_agent_starter/ai_agent/data/rbac_matrix.csv : Matriks role–permission ter-flatten (dipakai prompt LLM/planner).
+- ai_agent_starter/ai_agent/data/rbac_rules.json : Contoh aturan RBAC (referensi/opsional).
+- ai_agent_starter/ai_agent/data/role_permission.csv : Relasi role-permission (varian penamaan yang dipakai script cek).
+
+-- Folder core (mesin agen) --
+- ai_agent_starter/ai_agent/core/orchestrator.py : Orkestrator end-to-end. Rencana → Generate test (LLM/heuristik) → Eksekusi → Observasi → Follow-up → Laporan. Mendukung fixtures & auto-discovery ID, concurrency, depth, OpenAI/Gemini.
+- ai_agent_starter/ai_agent/core/tools_http.py : HTTP client berbasis `requests`, retry+jitter, penulisan artifact JSON (request/response) dengan masking Authorization.
+- ai_agent_starter/ai_agent/core/tools_auth.py : Manajer autentikasi per role (login, cache token, infer field username/email & password dari OpenAPI, ENV override). Menyediakan `get_token()` & `get_user_id()`.
+- ai_agent_starter/ai_agent/core/memory.py : Model `TestCase`, `Result`, dan `Memory` (menyimpan daftar tes, hasil, serta resource IDs per role).
+- ai_agent_starter/ai_agent/core/evaluators.py : Logika ekspektasi akses berdasar policy (allowed/deny + self/other), klasifikasi TP/TN/FP/FN, metrik, coverage, time-to-detect.
+- ai_agent_starter/ai_agent/core/reporters.py : Generator laporan JSON + ringkasan Markdown. Sertakan daftar artifacts.
+- ai_agent_starter/ai_agent/core/utils.py : Utilitas (load YAML/JSON, ekstraksi endpoint dari OpenAPI, normalisasi path, loader CSV RBAC/roles/permissions).
+- ai_agent_starter/ai_agent/core/tools_http.py : (lihat di atas; dicantumkan sekali saja)
+- ai_agent_starter/ai_agent/core/tools_postman.py : Stub/alat integrasi Postman (opsional; jika digunakan untuk koleksi).
+- ai_agent_starter/ai_agent/core/tools_zap.py : Stub/alat integrasi OWASP ZAP (opsional; jika diaktifkan via ENV).
+
+-- Folder prompts (untuk LLM) --
+- ai_agent_starter/ai_agent/prompts/planner.md : Template prompt untuk menyusun rencana pengujian dari OpenAPI+RBAC matrix.
+- ai_agent_starter/ai_agent/prompts/tester.md : Template prompt generator test-case (mutasi IDOR/BOLA, baseline self/other).
+- ai_agent_starter/ai_agent/prompts/triager.md : Template prompt triage/simpulan temuan & saran lanjutan.
+
+-- Folder scripts (alat bantu/runner) --
+- ai_agent_starter/ai_agent/scripts/run_orchestrator.py : Runner minimal (load .env, jalankan AgentOrchestrator, cetak path laporan).
+- ai_agent_starter/ai_agent/scripts/run_agent.py : Runner dengan tampilan `rich`, preflight check, ringkasan hasil di konsol.
+- ai_agent_starter/ai_agent/scripts/check_setup.py : Cek setup lokal (file wajib, ENV, konektivitas `/health`).
+- ai_agent_starter/ai_agent/scripts/convert_policy.py : Konversi policy.yaml ⇄ policy.json di folder config.
+- ai_agent_starter/ai_agent/scripts/test_llm.py : Tes konektivitas LLM (OpenAI/Gemini) sesuai ENV.
+- ai_agent_starter/ai_agent/scripts/generate_tests.py : Placeholder generator terpisah (saat ini diarahkan memakai orchestrator.plan_tests).
+
+-- Folder runs (output eksekusi) --
+- ai_agent_starter/ai_agent/runs/report-*.json : Laporan hasil dalam JSON (berisi metrik, coverage, daftar hasil & artifacts).
+- ai_agent_starter/ai_agent/runs/report-*.md : Ringkasan laporan dalam Markdown.
+- ai_agent_starter/ai_agent/runs/logs/agent.log : Log eksekusi (jika diaktifkan).
+- ai_agent_starter/ai_agent/runs/artifacts/ : Artefak request/response per panggilan HTTP (JSON dengan masking header Authorization).
+
+============================
+Alur Kerja Singkat Agen
+============================
+1) Baca konfigurasi (agent.yaml, auth.yaml, policy.yaml) dan OpenAPI.
+2) Susun rencana endpoint (LLM planner atau heuristik yang prioritaskan path dengan {id}).
+3) Bangkitkan test-case (LLM tester atau baseline deterministik) untuk tiap role, skenario self vs other.
+4) Eksekusi HTTP (autentikasi per role, isi placeholder {id}, simpan artifacts).
+5) Evaluasi sesuai policy (allowed/deny; self/other) → klasifikasi hasil → hitung metrik & coverage.
+6) (Opsional) Follow-up otomatis untuk kandidat temuan (no-auth, method override, duplicate query id, spoof role header) hingga `depth`.
+7) Simpan laporan JSON + Markdown di `ai_agent/runs/`.
+
+=======================
+Cara Cepat Menjalankan
+=======================
+- Buat venv: `python -m venv .venv && .\.venv\Scripts\activate`
+- Install deps: `pip install -r ai_agent_starter/requirements.txt`
+- Set ENV di `.env` (API_BASE_URL, kredensial uji, LLM_PROVIDER dan API key jika pakai LLM).
+- Cek setup: `python ai_agent_starter/ai_agent/scripts/check_setup.py`
+- Jalankan minimal: `python ai_agent_starter/ai_agent/scripts/run_orchestrator.py`
+- Jalankan dengan UI: `python ai_agent_starter/ai_agent/scripts/run_agent.py`
+
+================
+Catatan Keamanan
+================
+- Jangan commit `.env` berisi kredensial/kunci API. Tambahkan ke `.gitignore`.
+- Artefak menyimpan body respons; pastikan tidak memuat PII sensitif saat dibagikan.
+
+Selesai. Gunakan berkas ini sebagai referensi cepat untuk memahami fungsi setiap bagian proyek.
+

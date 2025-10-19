@@ -20,6 +20,25 @@ from ai_agent.core.orchestrator import AgentOrchestrator
 
 console = Console()
 
+def render_banner():
+    """Render a big ASCII banner and subtitle (configurable via env).
+    BANNER_TITLE, BANNER_SUBTITLE, BANNER_FONT can be set in .env
+    """
+    title = os.getenv("BANNER_TITLE", "AI Security Testing Agent")
+    subtitle = os.getenv("BANNER_SUBTITLE", "Broken Access Control (IDOR/BOLA) Orchestrator")
+    font = os.getenv("BANNER_FONT", "Slant")
+    try:
+        from pyfiglet import Figlet
+        fig = Figlet(font=font)
+        ascii_title = fig.renderText(title)
+        console.print(f"[bold cyan]{ascii_title}[/bold cyan]")
+    except Exception:
+        # Fallback to a simple panel if pyfiglet not available
+        console.print(Panel.fit(f"[bold cyan]{title}[/bold cyan]\n[dim]{subtitle}[/dim]", border_style="cyan"))
+        return
+    # Subtitle panel below the ASCII art
+    console.print(Panel.fit(f"[dim]{subtitle}[/dim]", border_style="cyan"))
+
 def check_api_server():
     """Check if local API is running"""
     import requests
@@ -39,20 +58,33 @@ def check_api_server():
         return False
 
 def main():
-    console.print(Panel.fit(
-        "[bold cyan]AI Security Testing Agent[/bold cyan]\n"
-        "[dim]Local Development Mode[/dim]",
-        border_style="cyan"
-    ))
+    render_banner()
     
     # ✅ Pre-flight checks
     if not check_api_server():
         sys.exit(1)
     
-    # ✅ Check credentials
-    if not os.getenv('OPENAI_API_KEY'):
-        console.print("❌ OPENAI_API_KEY not found in .env", style="red")
-        sys.exit(1)
+    # ✅ LLM provider check (optional)
+    llm_provider = (os.getenv('LLM_PROVIDER') or '').strip().lower()
+    openai_key = os.getenv('OPENAI_API_KEY')
+    gemini_key = os.getenv('GEMINI_API_KEY')
+    provider_name = 'deterministic'
+    if llm_provider in ('', 'openai'):
+        provider_name = 'openai'
+        if not openai_key:
+            console.print("⚠️ LLM provider set to OpenAI (or default), but OPENAI_API_KEY is missing. Running in deterministic mode.", style="yellow")
+            llm_provider = ''  # force deterministic behavior
+        else:
+            console.print("✅ LLM provider: OpenAI", style="green")
+    elif llm_provider == 'gemini':
+        provider_name = 'gemini'
+        if not gemini_key:
+            console.print("⚠️ LLM provider is Gemini, but GEMINI_API_KEY is missing. Running in deterministic mode.", style="yellow")
+            llm_provider = ''
+        else:
+            console.print("✅ LLM provider: Gemini", style="green")
+    else:
+        console.print(f"⚠️ Unknown LLM provider '{llm_provider}'. Running in deterministic mode.", style="yellow")
     
     console.print("\n🚀 Starting agent...\n")
     

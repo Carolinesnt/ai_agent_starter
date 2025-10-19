@@ -37,12 +37,21 @@ def check_all():
             print(f"✅ {file}")
     
     # Check 2: Env vars
-    required_env = ['OPENAI_API_KEY', 'API_BASE_URL']
-    for var in required_env:
-        if not os.getenv(var):
-            issues.append(f"❌ Missing env var: {var}")
-        else:
-            print(f"✅ {var} = {os.getenv(var)[:20]}...")
+    # API_BASE_URL is required; LLM keys are optional (OpenAI or Gemini)
+    if not os.getenv('API_BASE_URL'):
+        issues.append("❌ Missing env var: API_BASE_URL")
+    else:
+        print(f"✅ API_BASE_URL = {os.getenv('API_BASE_URL')}")
+
+    llm_provider = (os.getenv('LLM_PROVIDER') or '').strip().lower()
+    openai_key = os.getenv('OPENAI_API_KEY')
+    gemini_key = os.getenv('GEMINI_API_KEY')
+    if llm_provider in ('', 'openai') and openai_key:
+        print("✅ LLM configured: OpenAI")
+    elif llm_provider == 'gemini' and gemini_key:
+        print("✅ LLM configured: Gemini")
+    else:
+        print("⚠️ LLM not configured (or missing key). Agent will run in deterministic mode.")
     
     # Check 3: API reachable
     base_url = os.getenv('API_BASE_URL')

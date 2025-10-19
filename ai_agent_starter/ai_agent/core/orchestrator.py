@@ -1,12 +1,13 @@
-import os, time
+import os, time, json
 from typing import List, Dict, Any, Tuple
 import re
-from .utils import load_yaml, load_json, extract_paths_from_openapi, has_id_param, normalize_path, load_policy
-from .tools_http import HttpClient
-from .tools_auth import AuthManager
-from .memory import Memory, TestCase, Result
-from .reporters import save_json_report
-from .utils import load_rbac_matrix, get_all_roles, get_role_permissions
+from ai_agent.core.utils import load_yaml, load_json, extract_paths_from_openapi, has_id_param, normalize_path, load_policy
+from ai_agent.core.utils import endpoints_from_policy, load_endpoints_config
+from ai_agent.core.tools_http import HttpClient
+from ai_agent.core.tools_auth import AuthManager
+from ai_agent.core.memory import Memory, TestCase, Result
+from ai_agent.core.reporters import save_json_report
+from ai_agent.core.utils import load_rbac_matrix, get_all_roles, get_role_permissions
 import os
 from pathlib import Path
 
@@ -555,7 +556,11 @@ def main(config_dir="ai_agent/config", data_dir="ai_agent/data", runs_dir="ai_ag
     agent = load_yaml(os.path.join(config_dir, "agent.yaml"))
     policy = load_policy(config_dir)
     auth_cfg = load_yaml(os.path.join(config_dir, "auth.yaml"))
-    openapi = load_json(os.path.join(data_dir, "openapi.json"))
+    # OpenAPI is optional. If missing, main() will fallback to policy/endpoints.yaml
+    try:
+        openapi = load_json(os.path.join(data_dir, "openapi.json"))
+    except Exception:
+        openapi = {}
 
     # Token header/type from auth config
     _tok = (auth_cfg or {}).get("token", {}) if isinstance(auth_cfg, dict) else {}
@@ -585,7 +590,22 @@ def main(config_dir="ai_agent/config", data_dir="ai_agent/data", runs_dir="ai_ag
                 roles = list(rcfg.keys())
             elif isinstance(rcfg, list):
                 roles = [r.get("name") for r in rcfg if isinstance(r, dict) and r.get("name")]
-    plan, endpoints = plan_tests(openapi, roles)
+    # Build endpoints source: prefer OpenAPI; else combine endpoints.yaml and policy
+    if isinstance(openapi, dict) and openapi.get('paths'):
+        plan, endpoints = plan_tests(openapi, roles)
+    else:
+        # derive endpoints without OpenAPI
+        eps_cfg = load_endpoints_config(config_dir)
+        eps_pol = endpoints_from_policy(policy)
+        endpoints = (eps_cfg or []) + [e for e in eps_pol if e not in (eps_cfg or [])]
+        # If still empty, no targets
+        # Build plan directly from endpoints list
+        top_eps = endpoints[:TOP_N_ENDPOINTS]
+        plan = []
+        for e in top_eps:
+            for r in roles:
+                plan.append({"method": e["method"], "path": normalize_path(e["path"]), "role": r, "self_access": True})
+                plan.append({"method": e["method"], "path": normalize_path(e["path"]), "role": r, "self_access": False})
 
     memory = Memory()
     for item in plan:
@@ -789,7 +809,11 @@ class AgentOrchestrator:
         start_ts = time.time()
         policy = load_policy(self.config_dir)
         auth_cfg = load_yaml(os.path.join(self.config_dir, "auth.yaml"))
-        openapi = self._load_openapi()
+        # OpenAPI optional
+        try:
+            openapi = self._load_openapi()
+        except Exception:
+            openapi = {}
 
         _tok = (auth_cfg or {}).get("token", {}) if isinstance(auth_cfg, dict) else {}
         _base_url = os.getenv("API_BASE_URL") or agent["base_url"]
@@ -806,9 +830,11 @@ class AgentOrchestrator:
 
         available_auth_roles = list(auth.roles.keys())
         # Also consider roles that have env-based credentials even if not declared in auth.yaml
+        # Use candidate roles from policy/self/auth to avoid referencing undefined variable
         try:
             from .tools_auth import AuthManager as _AM
-            for r in (roles or []):
+            candidate_roles = (policy.get("roles") or self.roles or list(auth.roles.keys()))
+            for r in (candidate_roles or []):
                 if r in available_auth_roles:
                     continue
                 base = _AM._env_key_base(r)
@@ -880,10 +906,27 @@ class AgentOrchestrator:
         # Try LLM plan, fallback to deterministic plan
         llm_plan = self._plan_tests_llm(openapi, roles)
         if llm_plan:
-            endpoints = extract_paths_from_openapi(openapi)
+            # When no OpenAPI, we still need endpoints for coverage/reporting
+            if isinstance(openapi, dict) and openapi.get('paths'):
+                endpoints = extract_paths_from_openapi(openapi)
+            else:
+                eps_cfg = load_endpoints_config(self.config_dir)
+                eps_pol = endpoints_from_policy(policy)
+                endpoints = (eps_cfg or []) + [e for e in eps_pol if e not in (eps_cfg or [])]
             plan_list = llm_plan
         else:
-            plan_list, endpoints = plan_tests(openapi, roles)
+            if isinstance(openapi, dict) and openapi.get('paths'):
+                plan_list, endpoints = plan_tests(openapi, roles)
+            else:
+                eps_cfg = load_endpoints_config(self.config_dir)
+                eps_pol = endpoints_from_policy(policy)
+                endpoints = (eps_cfg or []) + [e for e in eps_pol if e not in (eps_cfg or [])]
+                # Deterministic plan from endpoints
+                plan_list = []
+                for e in endpoints[:TOP_N_ENDPOINTS]:
+                    for r in roles:
+                        plan_list.append({"method": e["method"], "path": normalize_path(e["path"]), "role": r, "self_access": True})
+                        plan_list.append({"method": e["method"], "path": normalize_path(e["path"]), "role": r, "self_access": False})
 
         # GENERATE (LLM, fallback deterministic)
         generated = []
@@ -929,14 +972,15 @@ class AgentOrchestrator:
                     followups.extend(llm_fus[:10])
                 for f in followups:
                     memory.record_test(f)
-        # Final reflect over all observations
+        # Final reflect over all observations across all depths
+        observations_all = observe(memory.results, policy)
         if triage_enabled:
             try:
-                reflection = _triage_llm_redacted(self.client, self.llm_provider, observations)
+                reflection = _triage_llm_redacted(self.client, self.llm_provider, observations_all)
             except Exception:
-                reflection = reflect(observations)
+                reflection = reflect(observations_all)
         else:
-            reflection = reflect(observations)
+            reflection = reflect(observations_all)
 
         ts = time.strftime("%Y%m%d-%H%M%S")
         report_path = os.path.join(self.runs_dir, f"report-{ts}.json")

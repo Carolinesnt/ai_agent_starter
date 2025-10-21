@@ -106,3 +106,45 @@ def time_to_detect(results: List[Result], policy, start_ts: float) -> Dict[str, 
         "seconds": round((first_ts - start_ts), 3) if (first_ts and start_ts) else None,
         "test_index": first_idx,
     }
+
+def bac_type(policy: dict, tc: TestCase) -> str:
+    """
+    Determine BAC type based on test case and policy context.
+    
+    Returns:
+        - 'horizontal': IDOR - same privilege level, accessing other user's resources
+        - 'vertical': BOLA - privilege escalation attempt
+        - 'baseline': Normal expected operations (self access)
+        - 'auth': Authentication related tests
+    """
+    # Check mutation for explicit type hints
+    mut = tc.mutation or {}
+    mut_type = str(mut.get("type", "")).upper()
+    
+    # Vertical escalation (privilege escalation)
+    if mut_type in ("BOLA", "VERTICAL", "ESCALATION"):
+        return 'vertical'
+    
+    # Check if accessing with different role than original
+    if mut.get("as_role") and mut.get("as_role") != tc.role:
+        return 'vertical'
+    
+    # Horizontal access (IDOR - other user's resource at same level)
+    if mut_type == "IDOR" or mut.get("variant") == "other":
+        return 'horizontal'
+    
+    # Self access = false indicates testing access to other users' resources
+    if not tc.self_access:
+        return 'horizontal'
+    
+    # Check for no-auth attempts (treat as vertical since it's trying to bypass auth)
+    if mut.get("no_auth") or mut.get("without_auth") or mut_type in ("NO_AUTH", "NEGATIVE_AUTH"):
+        return 'vertical'
+    
+    # Authentication endpoints (login, logout, register, etc.)
+    path_lower = tc.path.lower()
+    if any(keyword in path_lower for keyword in ['/auth/', '/login', '/logout', '/register', '/signin', '/signup']):
+        return 'auth'
+    
+    # Default baseline (self access, normal operations)
+    return 'baseline'

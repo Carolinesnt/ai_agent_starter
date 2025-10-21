@@ -14,8 +14,41 @@ class HttpClient:
         pathlib.Path(artifacts_dir).mkdir(parents=True, exist_ok=True)
         self.session = None if dry_run else requests.Session()
 
-    def _artifact_path(self, name: str) -> str:
-        return os.path.join(self.artifacts_dir, name)
+    def _artifact_path(self, name: str, role: str = None, bac_type: str = None, target_label: str | None = None) -> str:
+        """
+        Generate organized artifact path structure:
+        artifacts/
+          {role}/
+            horizontal/  (IDOR - same privilege level, different user)
+            vertical/    (BOLA - privilege escalation)
+            baseline/    (normal expected operations)
+            auth/        (authentication related)
+        """
+        if role:
+            # Normalize role name for folder (lowercase, replace spaces/special chars)
+            role_folder = role.lower().replace(' ', '_').replace('-', '_')
+            
+            # Determine subfolder based on BAC type
+            if bac_type:
+                subfolder = bac_type.lower()
+            else:
+                # Default to baseline if no type specified
+                subfolder = "baseline"
+            
+            # Optional target label (e.g., to_admin, to_employee, to_same_role)
+            parts = [self.artifacts_dir, role_folder, subfolder]
+            if target_label:
+                safe_target = str(target_label).lower().strip()
+                safe_target = safe_target.replace(' ', '_').replace('-', '_')
+                parts.append(safe_target)
+
+            # Create directory structure
+            full_dir = os.path.join(*parts)
+            pathlib.Path(full_dir).mkdir(parents=True, exist_ok=True)
+            return os.path.join(full_dir, name)
+        else:
+            # Fallback to flat structure if no role provided
+            return os.path.join(self.artifacts_dir, name)
 
     def _mask_headers_for_artifact(self, headers: Dict[str, Any]) -> Dict[str, Any]:
         masked = dict(headers or {})
@@ -41,7 +74,22 @@ class HttpClient:
                 masked[target_key] = "***masked***"
         return masked
 
-    def request(self, method: str, path: str, token: Optional[str], params=None, json_body=None, extra_headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    def request(self, method: str, path: str, token: Optional[str], params=None, json_body=None, extra_headers: Optional[Dict[str, str]] = None, 
+                role: str = None, bac_type: str = None, test_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Execute HTTP request and save artifact with organized structure.
+        
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            path: API path
+            token: Authorization token
+            params: Query parameters
+            json_body: JSON request body
+            extra_headers: Additional headers
+            role: User role for organizing artifacts (e.g., 'Admin_HC', 'Employee')
+            bac_type: BAC test type - 'horizontal', 'vertical', 'baseline', 'auth'
+            test_context: Additional context (self_access, mutation info) for metadata
+        """
         url = f"{self.base_url}{path}"
         headers = {"Accept": "application/json"}
         if token:
@@ -63,14 +111,66 @@ class HttpClient:
                     sess = self.session or requests
                     r = sess.request(method.upper(), url, headers=headers, params=params, json=json_body, timeout=self.timeout_s)
                     resp = {"status_code": r.status_code, "body": self._safe_json(r)}
-                # Simpan artefak
+                # Simpan artefak dengan struktur terorganisir
                 ts = int(time.time()*1000)
                 safe = path.strip('/').replace('/','_').replace('?','_').replace('&','_').replace('=','-')
                 name = f"{ts}_{method}_{safe}.json"
-                with open(self._artifact_path(name), "w", encoding="utf-8") as f:
-                    json.dump({"request": {"method": method, "url": url, "headers": self._mask_headers_for_artifact(headers), "params": params, "json": json_body},
-                               "response": resp}, f, indent=2)
-                resp["artifact"] = os.path.join(self.artifacts_dir, name)
+                
+                # Derive optional target label for deeper categorization (best-practice):
+                # - horizontal: same role, to_same_role or to_<role>
+                # - vertical: privilege escalation attempts, try to infer target role
+                target_label = None
+                try:
+                    ctx = test_context or {}
+                    original_role = (ctx.get("original_role") or role or "").strip()
+                    as_role = (ctx.get("as_role") or role or "").strip()
+                    mut = ctx.get("mutation") or {}
+
+                    def _norm(s: str) -> str:
+                        return (s or "").strip().lower().replace(' ', '_').replace('-', '_')
+
+                    if str(bac_type).lower() == 'horizontal':
+                        # same privilege level; target is effectively the same role
+                        # Use explicit same-role label for clarity
+                        target_label = f"to_{_norm(original_role) or 'same_role'}"
+                    elif str(bac_type).lower() == 'vertical':
+                        # privilege escalation; if mutation specifies a different role, use it
+                        mut_role = mut.get('as_role')
+                        if isinstance(mut_role, str) and _norm(mut_role) and _norm(mut_role) != _norm(original_role):
+                            target_label = f"to_{_norm(mut_role)}"
+                        else:
+                            # Infer from path for common admin-ish areas
+                            pl = path.lower()
+                            adminish = any(k in pl for k in ['/role', '/roles', '/permission', '/permissions', '/users', '/user/', '/rbac', '/admin'])
+                            target_label = 'to_admin' if adminish else 'to_unknown'
+                except Exception:
+                    target_label = None
+
+                # Generate artifact path with role/type/target organization
+                artifact_full_path = self._artifact_path(name, role=role, bac_type=bac_type, target_label=target_label)
+                
+                # Build artifact metadata
+                artifact_data = {
+                    "request": {
+                        "method": method, 
+                        "url": url, 
+                        "headers": self._mask_headers_for_artifact(headers), 
+                        "params": params, 
+                        "json": json_body
+                    },
+                    "response": resp,
+                    "metadata": {
+                        "role": role,
+                        "bac_type": bac_type,
+                        "timestamp": ts,
+                        "test_context": test_context or {}
+                    }
+                }
+                
+                with open(artifact_full_path, "w", encoding="utf-8") as f:
+                    json.dump(artifact_data, f, indent=2)
+                
+                resp["artifact"] = artifact_full_path
                 return resp
             except Exception as e:
                 last_exc = e

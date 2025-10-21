@@ -65,6 +65,11 @@ Paket `ai_agent` (kode utama)
 - ai_agent_starter/ai_agent/runs/report-*.md : Ringkasan laporan dalam Markdown.
 - ai_agent_starter/ai_agent/runs/logs/agent.log : Log eksekusi (jika diaktifkan).
 - ai_agent_starter/ai_agent/runs/artifacts/ : Artefak request/response per panggilan HTTP (JSON dengan masking header Authorization).
+  Struktur terorganisir per role dan BAC type:
+  artifacts/{role}/{bac_type}/{timestamp}_{method}_{path}.json
+  • role: admin_hc, employee, employee_2
+  • bac_type: auth, baseline, horizontal, vertical
+  Lihat ARTIFACT_ORGANIZATION.md untuk detail lengkap.
 
 ============================
 Alur Kerja Singkat Agen

@@ -1,0 +1,16 @@
+(.venv) PS C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\scripts> python check_setup.py
+[INFO] Checking local setup...
+
+[OK ] role_permissions mapping found
+[OK ] C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\config\agent.yaml
+[OK ] C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\config\auth.yaml
+[OK ] C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\config\policy.yaml
+[OK ] C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\data\roles.csv
+[OK ] C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\data\permissions.csv
+[OK ] base_url (agent.yaml) = http://127.0.0.1:8000/
+[WARN] LLM not configured (or missing key). Agent will run in deterministic mode.
+[OK ] API reachable at http://127.0.0.1:8000/
+
+==================================================
+[WARN] Issues found:
+  [WARN] Missing env var: API_BASE_URL (agent.yaml base_url will be used by orchestrator)

@@ -183,6 +183,43 @@ def _replace_id_placeholders(path: str, target_id: int) -> str:
 def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, tests: List[TestCase] = None, concurrency: int = 1):
     batch = tests if tests is not None else memory.tests
 
+    def _determine_bac_type(tc: TestCase) -> str:
+        """
+        Determine BAC type for artifact organization:
+        - 'auth': authentication/login endpoints
+        - 'horizontal': IDOR - same privilege level, accessing other user's resources
+        - 'vertical': BOLA - privilege escalation attempt
+        - 'baseline': normal expected operations (self access)
+        """
+        mut = tc.mutation or {}
+        
+        # Check if it's an auth endpoint
+        path_lower = tc.path.lower()
+        if any(keyword in path_lower for keyword in ['/auth/', '/login', '/logout', '/token', '/refresh']):
+            return 'auth'
+        
+        # Check mutation type
+        mut_type = str(mut.get("type", "")).upper()
+        
+        # Vertical escalation (privilege escalation)
+        if mut_type in ("BOLA", "VERTICAL", "ESCALATION"):
+            return 'vertical'
+        if mut.get("as_role") and mut.get("as_role") != tc.role:
+            return 'vertical'
+        
+        # Horizontal access (IDOR - other user's resource at same level)
+        if mut_type == "IDOR" or mut.get("variant") == "other":
+            return 'horizontal'
+        if not tc.self_access:
+            return 'horizontal'
+        
+        # Check for no-auth attempts (treat as vertical since it's trying to bypass auth)
+        if mut.get("no_auth") or mut.get("without_auth") or mut_type in ("NO_AUTH", "NEGATIVE_AUTH"):
+            return 'vertical'
+        
+        # Default baseline (self access, normal operations)
+        return 'baseline'
+
     def _target_user_id(as_role: str, self_access: bool) -> int:
         uid = auth.get_user_id(as_role)
         if not self_access:
@@ -252,7 +289,29 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
         if isinstance(mut.get("headers"), dict):
             extra_headers.update(mut.get("headers"))
 
-        resp = http.request(tc.method, path, token=token, params=params, extra_headers=extra_headers)
+        # Determine BAC type for artifact organization
+        bac_type = _determine_bac_type(tc)
+        
+        # Build test context for metadata
+        test_context = {
+            "self_access": tc.self_access,
+            "mutation": mut,
+            "depth": tc.depth,
+            "as_role": as_role,
+            "original_role": tc.role,
+            "use_no_auth": use_no_auth
+        }
+
+        resp = http.request(
+            tc.method, 
+            path, 
+            token=token, 
+            params=params, 
+            extra_headers=extra_headers,
+            role=tc.role,
+            bac_type=bac_type,
+            test_context=test_context
+        )
         import time as _t
         memory.record_result(Result(tc=tc, status_code=resp["status_code"], body=resp.get("body", {}), ts=_t.time(), artifact=resp.get("artifact")))
 
@@ -359,12 +418,19 @@ def generate_llm(client, plan_pairs: List[Dict[str, Any]], policy: dict, openapi
 
 def observe(results: List[Result], policy: dict) -> List[Dict[str, Any]]:
     """Observe: bandingkan hasil dengan ekspektasi kebijakan untuk temuan ringkas."""
-    from .evaluators import expected_status
+    from ai_agent.core.evaluators import expected_status, bac_type
     observations = []
     for r in results:
         exp = expected_status(policy, r.tc)
         verdict = "ok" if r.status_code in exp.get("status_in", []) else "mismatch"
         vuln = verdict == "mismatch" and r.status_code == 200
+        # Prepare a redacted, bounded body excerpt to safely share with LLM
+        try:
+            import json as _json
+            body_text = _json.dumps(r.body, ensure_ascii=False) if isinstance(r.body, (dict, list)) else str(r.body)
+        except Exception:
+            body_text = str(r.body)
+        body_excerpt = _redact_str(body_text, max_chars=800)
         observations.append({
             "method": r.tc.method,
             "path": r.tc.path,
@@ -375,6 +441,8 @@ def observe(results: List[Result], policy: dict) -> List[Dict[str, Any]]:
             "vuln_suspected": bool(vuln),
             "depth": getattr(r.tc, 'depth', 0),
             "mutation": r.tc.mutation,
+            "bac_type": bac_type(policy, r.tc),
+            "body_excerpt": body_excerpt,
         })
     return observations
 
@@ -407,7 +475,7 @@ def _redact_str(val: str, max_chars: int = 1000) -> str:
     s = re.sub(r"\b\d{9,}\b", "<redacted:number>", s)
     return s
 
-def _triage_llm_redacted(client, provider: str, observations: List[Dict[str, Any]], max_items: int = 50) -> Dict[str, Any]:
+def _triage_llm_redacted(client, provider: str, observations: List[Dict[str, Any]], max_items: int = 50, redact_max_chars: int = 1000) -> Dict[str, Any]:
     items = []
     for o in observations[:max_items]:
         items.append({
@@ -418,6 +486,8 @@ def _triage_llm_redacted(client, provider: str, observations: List[Dict[str, Any
             "expected": o.get("expected"),
             "actual": o.get("actual"),
             "mutation": o.get("mutation"),
+            # Provide a safe, short excerpt for context
+            "body_excerpt": _redact_str(str(o.get("body_excerpt") or ""), max_chars=redact_max_chars),
         })
     import json as _json
     prompt = (
@@ -458,12 +528,22 @@ def _triage_llm_redacted(client, provider: str, observations: List[Dict[str, Any
     except Exception:
         return {"summary": "", "suspected_causes": [], "next_actions": []}
 
-def _followups_llm(client, provider: str, observations: List[Dict[str, Any]], current_depth: int, max_add: int = 10) -> List[Dict[str, Any]]:
+def _followups_llm(client, provider: str, observations: List[Dict[str, Any]], current_depth: int, max_add: int = 10, redact_max_chars: int = 1000) -> List[Dict[str, Any]]:
     # Only use mismatches as seeds
-    seeds = [
-        {k: o.get(k) for k in ("method", "path", "role", "self_access", "mutation")}
-        for o in observations if o.get("vuln_suspected")
-    ]
+    seeds = []
+    for o in observations:
+        if not o.get("vuln_suspected"):
+            continue
+        seeds.append({
+            "method": o.get("method"),
+            "path": o.get("path"),
+            "role": o.get("role"),
+            "self_access": o.get("self_access"),
+            "mutation": o.get("mutation"),
+            "observed_status": o.get("actual"),
+            # Include a short redacted excerpt to help propose smarter variants
+            "body_excerpt": _redact_str(str(o.get("body_excerpt") or ""), max_chars=redact_max_chars),
+        })
     if not seeds:
         return []
     import json as _json
@@ -472,7 +552,7 @@ def _followups_llm(client, provider: str, observations: List[Dict[str, Any]], cu
         "Given failed observations (expected deny vs actual 200 or vice versa), propose up to "
         f"{max_add} follow-up test variants with fields: method, path, role, variant (self/other), headers (optional), no_auth (optional true/false), query_id (optional true).\n"
         "Return strictly JSON with key 'tests' as array.\n\n"
-        f"Seeds:\n{_json.dumps(seeds, ensure_ascii=False)}\n"
+        f"Seeds (with redacted body excerpts):\n{_json.dumps(seeds, ensure_ascii=False)}\n"
     )
     try:
         if provider == "gemini":
@@ -496,7 +576,7 @@ def _followups_llm(client, provider: str, observations: List[Dict[str, Any]], cu
                 ]
             )
             content = resp.choices[0].message.content
-        data = json.loads(content or "{}")
+        data = _json.loads(content or "{}")
         tests = data.get("tests") or []
         out = []
         for t in tests[:max_add]:
@@ -965,7 +1045,7 @@ class AgentOrchestrator:
                 # Optional: LLM-driven follow-ups (redacted observations only)
                 if followups_enabled:
                     try:
-                        llm_fus = _followups_llm(self.client, self.llm_provider, obs_cur, cur_depth)
+                        llm_fus = _followups_llm(self.client, self.llm_provider, obs_cur, cur_depth, redact_max_chars=redact_max_chars)
                     except Exception:
                         llm_fus = []
                     # Merge with cap to avoid explosion
@@ -976,7 +1056,7 @@ class AgentOrchestrator:
         observations_all = observe(memory.results, policy)
         if triage_enabled:
             try:
-                reflection = _triage_llm_redacted(self.client, self.llm_provider, observations_all)
+                reflection = _triage_llm_redacted(self.client, self.llm_provider, observations_all, redact_max_chars=redact_max_chars)
             except Exception:
                 reflection = reflect(observations_all)
         else:

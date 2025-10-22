@@ -1,5 +1,6 @@
 # config/auth.yaml
-base_url: "http://localhost:8080"  # ✅ sama dengan agent.yaml
+# Prefer AUTH_BASE_URL from .env; fallback to agent.yaml base_url if unset
+# base_url: "http://127.0.0.1:8000/"
 
 roles:
   Admin_HC:

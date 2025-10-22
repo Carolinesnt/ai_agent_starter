@@ -1,14 +1,50 @@
-tolong setiap request endpoint dibuat lognya, 
-nanti taro di artifact
-buat nya kek 
+untuk role kan cuma ada 2, yaitu admin dan employee
+ketika testing admin dan employee
 
-artifact/
-employee/
-employee (BOLA)
-admin(IDOR)
+ADMIN_USERNAME=danny.prasetya@sigma.co.id
+ADMIN_PASSWORD=8&h513_F@+!Cyi!
+EMPLOYEE_USERNAME=agustinus_ekonugroho@sigma.co.id
+EMPLOYEE_PASSWORD=password123
+EMPLOYEE_2_USERNAME=ari.ginting@sigma.co.id
+EMPLOYEE_2_PASSWORD=sigma123
 
-admin/
-admin
+jadi admin bener bener testing url yang ada disini 
+C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\config\policy.yaml
 
-apa response dan apa requestnya, tolong untuk date time itu 
-DD-MM-YYYY HH:MM etc 
+karena dari hasil artifact saya liat ada di folder admin_hc tapi kok pas get detail user dia malah gabisa 
+
+malah 401, padahal kan harusnya bisa (saya coba di postman manual aja bisa)
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:8000/user/1",
+    "headers": {
+      "Accept": "application/json"
+    },
+    "params": null,
+    "json": null
+  },
+  "response": {
+    "status_code": 401,
+    "body": {
+      "status": false,
+      "message": "Authorization header missing or invalid format",
+      "error_code": "UNAUTHORIZED"
+    }
+  },
+  "metadata": {
+    "role": "Admin_HC",
+    "bac_type": "baseline",
+    "timestamp": 1761106124873,
+    "timestamp_str": "22-10-2025 04:08",
+    "folder_label": "admin_hc (BASELINE)",
+    "test_context": {
+      "self_access": true,
+      "mutation": {},
+      "depth": 0,
+      "as_role": "Admin_HC",
+      "original_role": "Admin_HC",
+      "use_no_auth": false
+    }
+  }
+}

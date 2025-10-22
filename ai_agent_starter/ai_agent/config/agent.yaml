@@ -7,6 +7,7 @@ concurrency: 2
 artifacts_dir: "ai_agent/runs/artifacts"
 log_dir: "ai_agent/runs/logs"
 dry_run: false
+request_delay_ms: 1000  # slow mode for step-by-step runs (can override via REQUEST_DELAY_MS env)
 
 # LLM features (privacy-first):
 llm:
@@ -14,6 +15,9 @@ llm:
   followups_enabled: true       # propose additional follow-up tests via LLM
   redact_enabled: true          # redact content before sending to LLM
   redact_max_chars: 1000        # cap any text snippets sent to LLM
+
+planning:
+  policy_first: true            # best practice: restrict plan to endpoints defined in policy.yaml
 
 # Auto-discovery of resource IDs via list endpoints (simple patterns only)
 discovery:

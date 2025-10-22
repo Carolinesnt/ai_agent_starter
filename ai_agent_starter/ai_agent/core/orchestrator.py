@@ -233,8 +233,15 @@ def _replace_id_placeholders(path: str, target_id: int) -> str:
         return m.group(0)
     return re.sub(r"\{([^}/]+)\}", repl, path)
 
-def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, tests: List[TestCase] = None, concurrency: int = 1, adjustments: Dict[str, Any] = None, openapi: dict = None):
+def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, tests: List[TestCase] = None, concurrency: int = 1, adjustments: Dict[str, Any] = None, openapi: dict = None, delay_s: float = 0.0):
     batch = tests if tests is not None else memory.tests
+    # Build OpenAPI set for fast membership checks (method, path)
+    openapi_set = set()
+    if isinstance(openapi, dict) and openapi.get('paths'):
+        try:
+            openapi_set = {(e["method"].upper(), normalize_path(e["path"])) for e in extract_paths_from_openapi(openapi)}
+        except Exception:
+            openapi_set = set()
 
     def _determine_bac_type(tc: TestCase) -> str:
         """
@@ -439,6 +446,27 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
         # Mutasi path: ganti {id}-like
         path = _fill_placeholders(tc.path, as_role, tc.self_access)
 
+        # Repair path against OpenAPI if needed (handle missing leading slash or stray prefix artifacts)
+        try:
+            m = (tc.method or 'GET').upper()
+            p = normalize_path(path)
+            if openapi_set and (m, p) not in openapi_set:
+                # Try removing any non-slash prefix before first '/'
+                raw = p.lstrip('\ufeff').strip()
+                if not raw.startswith('/'):
+                    raw = '/' + raw
+                # Drop leading non-slash segment if it's not in OpenAPI (e.g., stray 'I2/')
+                if '/' in raw[1:]:
+                    candidate = '/' + raw.split('/', 2)[2] if raw.count('/') >= 2 else raw
+                    cand_norm = normalize_path(candidate)
+                    if (m, cand_norm) in openapi_set:
+                        p = cand_norm
+                # Last attempt: keep normalized original
+            path = p
+        except Exception:
+            # keep original path best effort
+            pass
+
         # Special case: assign role to user -> enforce user_id=112 and JSON body
         try:
             if str(tc.method).upper() == 'POST' and '/user/' in path and '/roles' in path:
@@ -558,6 +586,12 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
                     memory.record_result(Result(tc=tc, status_code=0, body={"skipped": True, "reason": "id not in allow_delete"}, ts=_t.time(), artifact=None))
                     return
 
+        # Realtime progress: before request
+        try:
+            print(f"[RUN] role={tc.role} | type={bac_type.upper()} | {tc.method} {path}")
+        except Exception:
+            pass
+
         resp = http.request(
             tc.method, 
             path, 
@@ -571,6 +605,17 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
         )
         import time as _t
         memory.record_result(Result(tc=tc, status_code=resp["status_code"], body=resp.get("body", {}), ts=_t.time(), artifact=resp.get("artifact")))
+        # Realtime progress: after request
+        try:
+            print(f"[RES] role={tc.role} | type={bac_type.upper()} | {tc.method} {path} -> {resp['status_code']} | artifact={resp.get('artifact')}")
+        except Exception:
+            pass
+        # Optional slow mode between requests
+        try:
+            if delay_s and delay_s > 0:
+                time.sleep(delay_s)
+        except Exception:
+            pass
         # If created a resource, mark it for potential cleanup logic and store ids for placeholders
         try:
             if str(tc.method).upper() == 'POST':
@@ -1110,6 +1155,31 @@ class AgentOrchestrator:
         except Exception:
             return None
 
+    def _plan_from_policy(self, policy: dict, roles: list, openapi: dict | None) -> tuple[list[dict], list[dict]]:
+        """Policy-first plan: build endpoint list from policy allowed_endpoints/critical_deny across the given roles.
+        Returns (plan_pairs, endpoints_list_for_report).
+        """
+        # Collect endpoints per policy
+        eps = endpoints_from_policy(policy)  # unique set across roles
+        if openapi and isinstance(openapi, dict) and openapi.get('paths'):
+            # keep only ones present in OpenAPI if available
+            oset = {(e["method"].upper(), normalize_path(e["path"])) for e in extract_paths_from_openapi(openapi)}
+            eps = [e for e in eps if (e["method"].upper(), normalize_path(e["path"])) in oset]
+        # Keep order by method preference GET->POST->PUT->DELETE
+        order = {"GET":0, "POST":1, "PUT":2, "PATCH":3, "DELETE":4}
+        eps_sorted = sorted(eps, key=lambda e: (order.get((e.get('method') or 'GET').upper(), 9), normalize_path(e.get('path') or '/')))
+        # Limit to TOP_N_ENDPOINTS to avoid explosion
+        eps_sorted = eps_sorted[:TOP_N_ENDPOINTS]
+        # Build plan pairs per role: self and other for IDOR coverage
+        plan: list[dict] = []
+        for e in eps_sorted:
+            m = (e.get('method') or 'GET').upper()
+            p = normalize_path(e.get('path') or '/')
+            for r in roles:
+                plan.append({"method": m, "path": p, "role": r, "self_access": True})
+                plan.append({"method": m, "path": p, "role": r, "self_access": False})
+        return plan, eps_sorted
+
     def _generate_llm(self, plan_pairs: List[Dict[str, Any]], policy: dict, openapi: dict) -> List[TestCase]:
         """LLM-based generation of test cases using tester.md; returns empty on failure."""
         if not self.client:
@@ -1278,31 +1348,41 @@ class AgentOrchestrator:
         # Filter to roles we can actually authenticate (from auth.yaml or env creds), or allow all in dry_run
         if not agent.get("dry_run", False):
             roles = [r for r in roles if r in available_auth_roles]
+        # Keep Admin_HC, Employee, and Employee_2 when available
+        wanted = ["Admin_HC","Employee","Employee_2"]
+        roles = [r for r in roles if r in wanted]
 
-        # Try LLM plan, fallback to deterministic plan
-        llm_plan = self._plan_tests_llm(openapi, roles)
-        if llm_plan:
-            # When no OpenAPI, we still need endpoints for coverage/reporting
-            if isinstance(openapi, dict) and openapi.get('paths'):
-                endpoints = extract_paths_from_openapi(openapi)
-            else:
-                eps_cfg = load_endpoints_config(self.config_dir)
-                eps_pol = endpoints_from_policy(policy)
-                endpoints = (eps_cfg or []) + [e for e in eps_pol if e not in (eps_cfg or [])]
-            plan_list = llm_plan
+        # Planning mode: policy-first (best practice) or default
+        planning = (agent.get('planning') or {}) if isinstance(agent, dict) else {}
+        policy_first = bool(planning.get('policy_first', True))
+
+        if policy_first:
+            plan_list, endpoints = self._plan_from_policy(policy, roles, openapi)
         else:
-            if isinstance(openapi, dict) and openapi.get('paths'):
-                plan_list, endpoints = plan_tests(openapi, roles)
+            # Try LLM plan, fallback to deterministic plan via OpenAPI/config/policy
+            llm_plan = self._plan_tests_llm(openapi, roles)
+            if llm_plan:
+                # When no OpenAPI, we still need endpoints for coverage/reporting
+                if isinstance(openapi, dict) and openapi.get('paths'):
+                    endpoints = extract_paths_from_openapi(openapi)
+                else:
+                    eps_cfg = load_endpoints_config(self.config_dir)
+                    eps_pol = endpoints_from_policy(policy)
+                    endpoints = (eps_cfg or []) + [e for e in eps_pol if e not in (eps_cfg or [])]
+                plan_list = llm_plan
             else:
-                eps_cfg = load_endpoints_config(self.config_dir)
-                eps_pol = endpoints_from_policy(policy)
-                endpoints = (eps_cfg or []) + [e for e in eps_pol if e not in (eps_cfg or [])]
-                # Deterministic plan from endpoints
-                plan_list = []
-                for e in endpoints[:TOP_N_ENDPOINTS]:
-                    for r in roles:
-                        plan_list.append({"method": e["method"], "path": normalize_path(e["path"]), "role": r, "self_access": True})
-                        plan_list.append({"method": e["method"], "path": normalize_path(e["path"]), "role": r, "self_access": False})
+                if isinstance(openapi, dict) and openapi.get('paths'):
+                    plan_list, endpoints = plan_tests(openapi, roles)
+                else:
+                    eps_cfg = load_endpoints_config(self.config_dir)
+                    eps_pol = endpoints_from_policy(policy)
+                    endpoints = (eps_cfg or []) + [e for e in eps_pol if e not in (eps_cfg or [])]
+                    # Deterministic plan from endpoints
+                    plan_list = []
+                    for e in endpoints[:TOP_N_ENDPOINTS]:
+                        for r in roles:
+                            plan_list.append({"method": e["method"], "path": normalize_path(e["path"]), "role": r, "self_access": True})
+                            plan_list.append({"method": e["method"], "path": normalize_path(e["path"]), "role": r, "self_access": False})
 
         # GENERATE (LLM, fallback deterministic)
         generated = []
@@ -1334,13 +1414,34 @@ class AgentOrchestrator:
         adjustments = _load_adjustments()
         forced_conc = 1
 
+        # Determine slow mode delay from config or env
+        try:
+            delay_ms = int(os.getenv('REQUEST_DELAY_MS') or agent.get('request_delay_ms') or 0)
+        except Exception:
+            delay_ms = 0
+        delay_s = max(0.0, float(delay_ms) / 1000.0)
+
         for cur_depth in range(0, max_depth):
             # execute tests at current depth only
             pending = [t for t in memory.tests if t.depth == cur_depth]
             if not pending and cur_depth > 0:
                 break
+            # Order pending: Employee (self) → Employee_2 → Admin → others; then GET→POST→PUT→DELETE; then self before other
+            def _role_rank(r: str) -> int:
+                rl = (r or '').lower()
+                if rl == 'employee':
+                    return 0
+                if rl == 'employee_2':
+                    return 1
+                if rl == 'admin_hc':
+                    return 2
+                return 3
+            def _method_rank(m: str) -> int:
+                order = {'GET':0,'POST':1,'PUT':2,'DELETE':3}
+                return order.get((m or '').upper(), 9)
+            pending.sort(key=lambda x: (_role_rank(getattr(x,'role',"")), _method_rank(getattr(x,'method',"")), 0 if getattr(x,'self_access',True) else 1))
             # Run
-            execute(memory, http, auth, policy, tests=pending, concurrency=forced_conc, adjustments=adjustments, openapi=openapi)
+            execute(memory, http, auth, policy, tests=pending, concurrency=forced_conc, adjustments=adjustments, openapi=openapi, delay_s=delay_s)
             # Observe
             observations = observe(memory.results, policy)
             # Generate follow-ups if any
@@ -1373,14 +1474,16 @@ class AgentOrchestrator:
         save_json_report(report_path, memory.results, policy, memory.tests, roles, endpoints, start_ts=start_ts, reflection=reflection)
 
         # Summarize
-        from .evaluators import confusion_counts
+        from .evaluators import confusion_counts, metrics as _metrics
         cf = confusion_counts(memory.results, policy)
+        m = _metrics(cf)
         vulns = int(cf.get("FN", 0))
         return {
             "total_tests": len(memory.tests),
             "vulnerabilities": vulns,
             "report_path": report_path,
             "reflection": reflection,
+            "metrics": m,
         }
 
     # --- Best-practice CRUD sequence generator ---
@@ -1411,6 +1514,23 @@ class AgentOrchestrator:
             if has_ep('DELETE','/permissions/{id_permission}'):
                 seq.append(TestCase(method='DELETE', path='/permissions/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
             for tc in seq:
+                memory.record_test(tc)
+        except Exception:
+            pass
+
+        # vertical escalation attempts (BOLA) against admin-ish endpoints using Employee token
+        try:
+            esc = []
+            if employee and has_ep('GET','/roles'):
+                esc.append(TestCase(method='GET', path='/roles', role=employee, self_access=True, mutation={"type":"BOLA", "headers": {"X-Role": "Admin_HC"}}))
+            if employee and has_ep('GET','/permissions'):
+                esc.append(TestCase(method='GET', path='/permissions', role=employee, self_access=True, mutation={"type":"BOLA", "headers": {"X-Role": "Admin_HC"}}))
+            if employee and has_ep('GET','/users'):
+                esc.append(TestCase(method='GET', path='/users', role=employee, self_access=True, mutation={"type":"BOLA", "headers": {"X-Role": "Admin_HC"}}))
+            # also a no-auth escalation probe for one admin endpoint
+            if has_ep('GET','/roles'):
+                esc.append(TestCase(method='GET', path='/roles', role=employee or admin, self_access=True, mutation={"type":"NO_AUTH", "no_auth": True}))
+            for tc in esc:
                 memory.record_test(tc)
         except Exception:
             pass

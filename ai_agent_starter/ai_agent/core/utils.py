@@ -14,7 +14,13 @@ def load_json(path: str) -> dict:
         return json.load(f)
 
 def normalize_path(path: str) -> str:
-    return re.sub(r"//+", "/", path.strip())
+    s = str(path or "").strip()
+    # Ensure leading slash
+    if not s.startswith('/'):
+        s = '/' + s
+    # Collapse duplicate slashes
+    s = re.sub(r"//+", "/", s)
+    return s
 
 def extract_paths_from_openapi(spec: Dict[str, Any]) -> List[dict]:
     paths = []

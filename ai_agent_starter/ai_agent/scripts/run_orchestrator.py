@@ -10,9 +10,35 @@ from dotenv import load_dotenv
 # Ensure repository root on sys.path to import package `ai_agent`
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-# Load environment variables from .env if present
+# Load environment variables from .env (search repo root first), fallback to .env.example if .env not found
 try:
-    load_dotenv()
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        repo_root / "ai_agent_starter" / ".env",
+        repo_root / ".env",
+        repo_root.parent / ".env",
+        Path.cwd() / ".env",
+    ]
+    loaded = False
+    for env_path in candidates:
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path, override=True)
+            loaded = True
+            break
+    if not loaded:
+        # try .env.example as fallback template
+        examples = [
+            repo_root / "ai_agent_starter" / ".env.example",
+            repo_root / ".env.example",
+            Path.cwd() / ".env.example",
+        ]
+        for env_path in examples:
+            if env_path.exists():
+                load_dotenv(dotenv_path=env_path, override=True)
+                loaded = True
+                break
+    if not loaded:
+        load_dotenv()  # final fallback to current dir
 except Exception:
     pass
 

@@ -13,8 +13,36 @@ from rich.panel import Panel
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-# ✅ Load environment
-load_dotenv()
+# Robust .env loading (search repo root), fallback to .env.example if .env not found
+try:
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        repo_root / "ai_agent_starter" / ".env",
+        repo_root / ".env",
+        repo_root.parent / ".env",
+        Path.cwd() / ".env",
+    ]
+    loaded = False
+    for env_path in candidates:
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path, override=True)
+            loaded = True
+            break
+    if not loaded:
+        examples = [
+            repo_root / "ai_agent_starter" / ".env.example",
+            repo_root / ".env.example",
+            Path.cwd() / ".env.example",
+        ]
+        for env_path in examples:
+            if env_path.exists():
+                load_dotenv(dotenv_path=env_path, override=True)
+                loaded = True
+                break
+    if not loaded:
+        load_dotenv()
+except Exception:
+    load_dotenv()
 
 from ai_agent.core.orchestrator import AgentOrchestrator
 
@@ -77,13 +105,15 @@ def main():
         agent = AgentOrchestrator()
         results = agent.run()
         
-        # ✅ Print summary
-        console.print("\n✅ Testing completed!", style="green bold")
-        console.print(f"📊 Total tests: {results['total_tests']}")
-        console.print(f"🔴 Vulnerabilities found: {results['vulnerabilities']}", 
-                     style="red" if results['vulnerabilities'] > 0 else "green")
-        console.print(f"📁 Report saved to: {results['report_path']}")
-        
+        # Print summary (clean output)
+        console.print("\nTesting completed!", style="green bold")
+        total = int(results.get("total_tests", 0) or 0)
+        vulns = int(results.get("vulnerabilities", 0) or 0)
+        console.print(f"Total tests: {total}")
+        console.print(f"Vulnerabilities found: {vulns}", style="red" if vulns > 0 else "green")
+        m = results.get("metrics") or {"precision":0.0,"recall":0.0,"f1":0.0,"accuracy":0.0}
+        console.print(f"Metrics -> precision: {m.get('precision',0.0)}, recall: {m.get('recall',0.0)}, f1: {m.get('f1',0.0)}, accuracy: {m.get('accuracy',0.0)}")
+        console.print(f"Report saved to: {results.get('report_path','')}" )
     except KeyboardInterrupt:
         console.print("\n⚠️  Agent stopped by user", style="yellow")
         sys.exit(0)

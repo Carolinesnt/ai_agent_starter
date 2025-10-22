@@ -1,47 +1,15 @@
-(.venv) PS C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\scripts> python run_orchestrator.py
-WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
-E0000 00:00:1761104630.626914   34308 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+[RES] role=Employee | type=HORIZONTAL | DELETE /employee/attachments/102/delete -> 404 | artifact=ai_agent/runs/artifacts\employee\IDOR\to_employee\1761110347758_DELETE_employee_attachments_102_delete.json
 Traceback (most recent call last):
-  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\urllib3\util\url.py", line 423, in parse_url
-    host, port = _HOST_PORT_RE.match(host_port).groups()  # type: ignore[union-attr]
-                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AttributeError: 'NoneType' object has no attribute 'groups'
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\requests\models.py", line 433, in prepare_url    
-    scheme, auth, host, port, path, query, fragment = parse_url(url)
-                                                      ^^^^^^^^^^^^^^
-  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\urllib3\util\url.py", line 449, in parse_url     
-    raise LocationParseError(source_url) from e
-urllib3.exceptions.LocationParseError: Failed to parse: http://127.0.0.1:8000I2/roles
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\scripts\run_orchestrator.py", line 28, in <module>
+  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\scripts\run_orchestrator.py", line 54, in <module>
     out = agent.run()
           ^^^^^^^^^^^
-  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\orchestrator.py", line 1343, in run       
-    execute(memory, http, auth, policy, tests=pending, concurrency=forced_conc, adjustments=adjustments, openapi=openapi)
-  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\orchestrator.py", line 624, in execute    
+  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\orchestrator.py", line 1416, in run       
+    execute(memory, http, auth, policy, tests=pending, concurrency=forced_conc, adjustments=adjustments, openapi=openapi, delay_s=delay_s)
+  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\orchestrator.py", line 641, in execute    
     _run_one(tc)
-  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\orchestrator.py", line 561, in _run_one   
-    resp = http.request(
-           ^^^^^^^^^^^^^
-  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\tools_http.py", line 181, in request      
-    raise last_exc
-  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\tools_http.py", line 112, in request      
-    r = sess.request(method.upper(), url, headers=headers, params=params, json=json_body, timeout=self.timeout_s)
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\requests\sessions.py", line 575, in request      
-    prep = self.prepare_request(req)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\requests\sessions.py", line 484, in prepare_request
-    p.prepare(
-  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\requests\models.py", line 367, in prepare        
-    self.prepare_url(url, params)
-  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\requests\models.py", line 435, in prepare_url    
-    raise InvalidURL(*e.args)
-requests.exceptions.InvalidURL: Failed to parse: http://127.0.0.1:8000I2/roles
+  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\orchestrator.py", line 437, in _run_one   
+    token = None if use_no_auth else auth.get_token(as_role)
+                                     ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\tools_auth.py", line 179, in get_token    
+    raise ValueError(f"Unable to extract token for role {role}; check auth response shape and token_json_path")  
+ValueError: Unable to extract token for role Admin_HC; check auth response shape and token_json_path

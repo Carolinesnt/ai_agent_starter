@@ -9,8 +9,36 @@ class AuthManager:
         self.cache = {}  # role -> token
         self._global = auth_cfg or {}
         token_cfg = (auth_cfg or {}).get("token", {}) if isinstance(auth_cfg, dict) else {}
-        self.token_json_path_default = token_cfg.get("token_json_path") or "token.access_token"
+        # Allow ENV override for token JSON path
+        env_token_path = os.getenv("TOKEN_JSON_PATH")
+        self.token_json_path_default = env_token_path or token_cfg.get("token_json_path") or "token.access_token"
         self.openapi = openapi or {}
+        # Optional separate base_url for auth endpoints
+        try:
+            # Prefer AUTH_BASE_URL from environment; then config; fallback to main http base_url
+            auth_base = os.getenv('AUTH_BASE_URL') or (auth_cfg or {}).get('base_url') or getattr(http, 'base_url', None)
+            if auth_base and isinstance(auth_base, str) and auth_base.strip():
+                # Build a lightweight HttpClient for login requests, copying settings
+                from .tools_http import HttpClient as _HC
+                self.http_login = _HC(
+                    base_url=auth_base,
+                    timeout_s=getattr(http, 'timeout_s', 20),
+                    retries=getattr(http, 'retries', 1),
+                    artifacts_dir=getattr(http, 'artifacts_dir', 'ai_agent/runs/artifacts'),
+                    dry_run=getattr(http, 'dry_run', False),
+                    token_header=getattr(http, 'token_header', 'Authorization'),
+                    token_type=getattr(http, 'token_type', 'Bearer'),
+                )
+            else:
+                self.http_login = http
+        except Exception:
+            self.http_login = http
+        # Ensure login client shares the same session so cookies persist across requests
+        try:
+            if getattr(self.http_login, 'session', None) is not None:
+                self.http_login.session = http.session
+        except Exception:
+            pass
         # Global credential field names override (e.g., email/password)
         self.global_user_field = (self._global.get("user_field") or self._global.get("credentials_field") or {}).get("username") if isinstance(self._global.get("credentials_field"), dict) else (self._global.get("user_field") or "username")
         self.global_pass_field = (self._global.get("credentials_field", {}) or {}).get("password") if isinstance(self._global.get("credentials_field"), dict) else "password"
@@ -70,6 +98,12 @@ class AuthManager:
             pass_field = self._infer_pass_field_from_openapi(info.get("endpoint")) or self.global_pass_field or "password"
             # Determine user value (prefer email if provided)
             user_value = env_email or env_user or payload.get("username") or payload.get("email")
+            # If the value looks like an email, prefer 'email' as the field name
+            try:
+                if isinstance(user_value, str) and ('@' in user_value) and user_field.lower() != 'email':
+                    user_field = 'email'
+            except Exception:
+                pass
             if user_value is not None:
                 payload[user_field] = user_value
             # Ensure we don't send both username and email
@@ -82,12 +116,67 @@ class AuthManager:
             include_uid = bool(self._global.get("include_user_id_in_login") or info.get("include_user_id_in_login"))
             if not include_uid and "user_id" in payload:
                 payload.pop("user_id", None)
-            resp = self.http.request("POST", ep, token=None, json_body=payload)
-            token = (
-                self._extract(resp.get("body", {}), info.get("token_json_path") or self.token_json_path_default)
-                or self._extract(resp.get("body", {}), "access_token")
-                or self._extract(resp.get("body", {}), "data.access_token")
+            resp = self.http_login.request(
+                "POST", ep, token=None, json_body=payload,
+                role=f"Auth_{role}", bac_type="auth",
+                test_context={"login_role": role, "payload_keys": list(payload.keys())}
             )
+            # If login failed, raise early with context
+            try:
+                sc = int(resp.get("status_code", 0))
+                if sc >= 400:
+                    raise ValueError(f"Login failed for role {role}: {sc} {resp.get('body')}")
+            except Exception:
+                pass
+            body = resp.get("body", {})
+            # Try multiple common locations
+            # Role-specific env override e.g., ADMIN_HC_TOKEN_JSON_PATH
+            role_token_path = os.getenv(f"{self._env_key_base(role)}_TOKEN_JSON_PATH")
+            token_path = role_token_path or info.get("token_json_path") or self.token_json_path_default
+            token = (
+                self._extract(body, token_path)
+                or self._extract(body, "access_token")
+                or self._extract(body, "data.access_token")
+                or self._extract(body, "data.token")
+                or self._extract(body, "token")
+                or self._extract(body, "data.accessToken")
+                or self._extract(body, "accessToken")
+                or self._extract(body, "jwt")
+                or self._extract(body, "data.jwt")
+            )
+            # Fallback: scan first string field containing 'token'
+            if not token:
+                try:
+                    def _scan(obj):
+                        if isinstance(obj, dict):
+                            for k, v in obj.items():
+                                if isinstance(k, str) and ('token' in k.lower() or 'access' in k.lower()):
+                                    if isinstance(v, str) and len(v) > 8:
+                                        return v
+                                r = _scan(v)
+                                if r:
+                                    return r
+                        elif isinstance(obj, list):
+                            for it in obj:
+                                r = _scan(it)
+                                if r:
+                                    return r
+                        return None
+                    token = _scan(body)
+                except Exception:
+                    token = None
+            if not token:
+                # Cookie-based auth fallback: if login status OK and cookies present, accept
+                try:
+                    sc_ok = int(resp.get('status_code', 0)) < 400
+                    has_cookie = hasattr(self.http_login, 'session') and getattr(self.http_login.session, 'cookies', None) and len(self.http_login.session.cookies) > 0
+                except Exception:
+                    sc_ok = False
+                    has_cookie = False
+                if sc_ok and has_cookie:
+                    token = ""  # use session cookies only
+                else:
+                    raise ValueError(f"Unable to extract token for role {role}; check auth response shape and token_json_path")
         self.cache[role] = token
         return token
 

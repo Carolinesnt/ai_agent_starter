@@ -24,6 +24,8 @@ class Memory:
     results: List[Result] = field(default_factory=list)
     # Seeded resource IDs: role -> { key/placeholder: id }
     resource_ids: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    # Optional: created resources to allow safe cleanup decisions (by resource key)
+    created: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
     def record_test(self, tc: TestCase):
         self.tests.append(tc)
@@ -40,3 +42,8 @@ class Memory:
             self.resource_ids[role][f"{key}_id"] = rid
         if not key.startswith("id_"):
             self.resource_ids[role][f"id_{key}"] = rid
+
+    def mark_created(self, resource_key: str, role: str, rid: int):
+        if resource_key not in self.created:
+            self.created[resource_key] = {}
+        self.created[resource_key][str(rid)] = rid

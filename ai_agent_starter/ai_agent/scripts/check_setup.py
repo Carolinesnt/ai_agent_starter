@@ -78,61 +78,50 @@ def check_all():
     # Check 2: Env vars and config base_url
     # API_BASE_URL influences scripts like run_agent; orchestrator uses config/agent.yaml
     env_base = os.getenv("API_BASE_URL")
-    if env_base:
-        print(f"[OK ] API_BASE_URL (env) = {env_base}")
-    else:
-        # If config base_url exists, treat missing env as a warning
-        issues.append("[WARN] Missing env var: API_BASE_URL (agent.yaml base_url will be used by orchestrator)")
+    
     # Load base_url from agent.yaml
     cfg_base = None
     try:
         import yaml
         cfg = yaml.safe_load((cfg_dir / "agent.yaml").read_text(encoding="utf-8"))
         cfg_base = (cfg or {}).get("base_url")
-        if cfg_base:
-            print(f"[OK ] base_url (agent.yaml) = {cfg_base}")
     except Exception:
         pass
+    
+    # Report status
+    if env_base:
+        print(f"[OK ] API_BASE_URL (env) = {env_base}")
+    elif cfg_base:
+        print(f"[INFO] API_BASE_URL not in env, using agent.yaml base_url = {cfg_base}")
+    else:
+        issues.append("[ERR] No API_BASE_URL found in env or agent.yaml")
+    
+    if cfg_base and not env_base:
+        print(f"[OK ] base_url (agent.yaml) = {cfg_base}")
+    elif cfg_base:
+        print(f"[OK ] base_url (agent.yaml) = {cfg_base}")
+        
     if env_base and cfg_base and env_base.rstrip('/') != cfg_base.rstrip('/'):
-        print("[WARN] API_BASE_URL (env) differs from agent.yaml base_url. Align these to avoid confusion.")
+        issues.append(f"[WARN] API_BASE_URL (env) differs from agent.yaml base_url. Align these to avoid confusion.")
 
     llm_provider = (os.getenv("LLM_PROVIDER") or "").strip().lower()
     openai_key = os.getenv("OPENAI_API_KEY")
     gemini_key = os.getenv("GEMINI_API_KEY")
+    
+    llm_configured = False
     if llm_provider in ("", "openai") and openai_key:
         print("[OK ] LLM configured: OpenAI")
+        llm_configured = True
     elif llm_provider == "gemini" and gemini_key:
         print("[OK ] LLM configured: Gemini")
-    else:
-        print("[WARN] LLM not configured (or missing key). Agent will run in deterministic mode.")
+        llm_configured = True
+    
+    if not llm_configured:
+        print("[INFO] LLM not configured (or missing key). Agent will run in deterministic mode.")
+        print("[INFO] To enable LLM features, set LLM_PROVIDER and API key in .env")
 
-    # Check 3: API reachable (try env, then config), unless dry_run enabled
-    # Detect dry_run from agent.yaml
-    dry_run = False
-    try:
-        import yaml
-        cfg = yaml.safe_load((cfg_dir / "agent.yaml").read_text(encoding="utf-8"))
-        dry_run = bool((cfg or {}).get("dry_run", False))
-    except Exception:
-        pass
-
-    def _check_api(url: str) -> bool:
-        try:
-            requests.get(f"{url.rstrip('/')}/health", timeout=5)
-            print(f"[OK ] API reachable at {url}")
-            return True
-        except Exception:
-            issues.append(f"[ERR] Cannot reach API at {url}")
-            return False
-
-    if dry_run:
-        print("[OK ] dry_run enabled in agent.yaml: skipping API reachability check")
-    else:
-        any_ok = False
-        if env_base:
-            any_ok = _check_api(env_base) or any_ok
-        if cfg_base and (not env_base or cfg_base.rstrip('/') != env_base.rstrip('/')):
-            any_ok = _check_api(cfg_base) or any_ok
+    # Check 3: API reachability check removed (no /health endpoint expected)
+    print("[INFO] Skipping API reachability check (no /health endpoint in this API)")
 
     # Summary
     print("\n" + "=" * 50)

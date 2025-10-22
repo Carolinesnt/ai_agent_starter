@@ -1,0 +1,14 @@
+tolong setiap request endpoint dibuat lognya, 
+nanti taro di artifact
+buat nya kek 
+
+artifact/
+employee/
+employee (BOLA)
+admin(IDOR)
+
+admin/
+admin
+
+apa response dan apa requestnya, tolong untuk date time itu 
+DD-MM-YYYY HH:MM etc 

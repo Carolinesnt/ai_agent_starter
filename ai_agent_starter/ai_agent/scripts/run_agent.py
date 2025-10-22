@@ -41,28 +41,12 @@ def render_banner():
 
 def check_api_server():
     """Check if local API is running"""
-    import requests
-    base_url = os.getenv('API_BASE_URL', 'http://localhost:8080')
-    
-    try:
-        resp = requests.get(f"{base_url}/health", timeout=5)
-        console.print(f"✅ API server running at {base_url}", style="green")
-        return True
-    except requests.exceptions.ConnectionError:
-        console.print(f"❌ API server not running at {base_url}", style="red")
-        console.print("💡 Start your API server first:", style="yellow")
-        console.print("   cd your-api-project && npm run dev", style="dim")
-        return False
-    except Exception as e:
-        console.print(f"⚠️  Warning: {e}", style="yellow")
-        return False
-
+    return True
 def main():
     render_banner()
     
     # ✅ Pre-flight checks
-    if not check_api_server():
-        sys.exit(1)
+    # Health check skipped: no /health endpoint
     
     # ✅ LLM provider check (optional)
     llm_provider = (os.getenv('LLM_PROVIDER') or '').strip().lower()

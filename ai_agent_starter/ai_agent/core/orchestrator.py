@@ -23,6 +23,59 @@ except Exception:
 
 TOP_N_ENDPOINTS = 56
 
+def _load_adjustments() -> Dict[str, Any]:
+    """Parse adjustment.txt rules for safe CRUD flows and delete guards.
+    Supported (free-text, Indonesian):
+      - "id consent ... tidak boleh di hapus" -> deny_delete['consent']
+      - "id consent ... boleh di hapus" -> allow_delete['consent']
+      - "permission_id ... jangan di hapus" -> deny_delete['permission']
+      - "permission_id ... boleh di hapus" -> allow_delete['permission']
+      - "role_id ... jangan di hapus" -> deny_delete['role']
+      - "role_id ... boleh di hapus" -> allow_delete['role']
+    """
+    import re
+    path = Path('adjustment.txt')
+    # Also try project root
+    if not path.exists():
+        alt = Path.cwd() / 'adjustment.txt'
+        path = alt if alt.exists() else None
+    rules = {"allow_delete": {"consent": [], "permission": [], "role": []},
+             "deny_delete": {"consent": [], "permission": [], "role": []}}
+    if not path:
+        # Try repo path in parent
+        parent = Path(__file__).resolve().parents[3] / 'adjustment.txt'
+        if parent.exists():
+            path = parent
+    try:
+        if path and path.exists():
+            txt = path.read_text(encoding='utf-8')
+            def nums(s):
+                return [int(x) for x in re.findall(r"\b(\d+)\b", s)]
+            for line in txt.splitlines():
+                ll = line.strip().lower()
+                if 'consent' in ll:
+                    if 'tidak boleh' in ll or 'jangan' in ll:
+                        rules['deny_delete']['consent'] += nums(ll)
+                    if 'boleh di hapus' in ll or 'boleh hapus' in ll or 'boleh dihapus' in ll:
+                        rules['allow_delete']['consent'] += nums(ll)
+                if 'permission_id' in ll or 'permission' in ll:
+                    if 'tidak boleh' in ll or 'jangan' in ll:
+                        rules['deny_delete']['permission'] += nums(ll)
+                    if 'boleh di hapus' in ll or 'boleh hapus' in ll or 'boleh dihapus' in ll:
+                        rules['allow_delete']['permission'] += nums(ll)
+                if 'role_id' in ll or re.search(r"\brole\b", ll):
+                    if 'tidak boleh' in ll or 'jangan' in ll:
+                        rules['deny_delete']['role'] += nums(ll)
+                    if 'boleh di hapus' in ll or 'boleh hapus' in ll or 'boleh dihapus' in ll:
+                        rules['allow_delete']['role'] += nums(ll)
+    except Exception:
+        pass
+    # Dedup
+    for k in ['allow_delete','deny_delete']:
+        for rk in ['consent','permission','role']:
+            rules[k][rk] = sorted({int(x) for x in rules[k][rk] if isinstance(x,int)})
+    return rules
+
 def _endpoint_priority_score(method: str, path: str, openapi: dict) -> int:
     score = 0
     # Prioritas tinggi jika menyentuh identitas/otorisasi
@@ -180,7 +233,7 @@ def _replace_id_placeholders(path: str, target_id: int) -> str:
         return m.group(0)
     return re.sub(r"\{([^}/]+)\}", repl, path)
 
-def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, tests: List[TestCase] = None, concurrency: int = 1):
+def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, tests: List[TestCase] = None, concurrency: int = 1, adjustments: Dict[str, Any] = None, openapi: dict = None):
     batch = tests if tests is not None else memory.tests
 
     def _determine_bac_type(tc: TestCase) -> str:
@@ -268,6 +321,114 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
 
         return re.sub(r"\{([^}/]+)\}", repl, path)
 
+    def _scan_id_candidates(body: Any) -> Dict[str, int]:
+        """
+        Extract candidate id-like fields from a JSON-ish body.
+        Returns mapping of key -> int value for keys containing 'id'.
+        """
+        out: Dict[str, int] = {}
+        try:
+            def _add_from_obj(obj: Dict[str, Any]):
+                for k, v in (obj or {}).items():
+                    if not isinstance(k, str):
+                        continue
+                    kl = k.lower()
+                    if 'id' in kl:
+                        try:
+                            iv = int(v)
+                            out[k] = iv
+                        except Exception:
+                            pass
+
+            def _first_items(val: Any):
+                # typical wrappers
+                if isinstance(val, dict):
+                    for path in [
+                        ['data', 'items'], ['data', 'list'], ['data', 'results'],
+                        ['items'], ['list'], ['results'], ['data']
+                    ]:
+                        cur = val
+                        ok = True
+                        for key in path:
+                            if isinstance(cur, dict) and key in cur:
+                                cur = cur[key]
+                            else:
+                                ok = False
+                                break
+                        if ok and isinstance(cur, list):
+                            return cur[:3]
+                        if ok and isinstance(cur, dict):
+                            return [cur]
+                if isinstance(val, list):
+                    return val[:3]
+                if isinstance(val, dict):
+                    return [val]
+                return []
+
+            # scan wrappers and top-level
+            for item in _first_items(body):
+                if isinstance(item, dict):
+                    _add_from_obj(item)
+            if isinstance(body, dict):
+                _add_from_obj(body)
+        except Exception:
+            return out
+        return out
+
+    def _learn_ids_from_response(tc: TestCase, resp_body: Any, owner_role: str):
+        """
+        Learn/store resource IDs per-role from a response body, aligned to placeholders in tc.path.
+        """
+        try:
+            # gather candidates from body
+            cands = _scan_id_candidates(resp_body)
+            if not cands:
+                return
+            # placeholders present in the original path template
+            placeholders = _extract_placeholders(tc.path)
+            for ph in placeholders:
+                base = ph
+                if base.endswith('_id'):
+                    base = base[:-3]
+                if base.startswith('id_'):
+                    base = base[3:]
+                # try exact matches first, then common variants
+                keys_try = [ph, base, f"{base}_id", f"id_{base}"]
+                rid = None
+                for k in keys_try:
+                    if k in cands:
+                        rid = cands[k]
+                        break
+                # fallback: pick strongest candidate whose key contains the base token
+                if rid is None:
+                    for k, v in cands.items():
+                        if base and base.lower() in k.lower():
+                            rid = v
+                            break
+                if rid is not None and isinstance(rid, int) and rid > 0:
+                    memory.store_resource_id(owner_role, base, rid)
+        except Exception:
+            return
+
+    def _resource_key_from_path(path: str) -> str | None:
+        pl = (path or '').lower()
+        if '/consent' in pl:
+            return 'consent'
+        if '/permissions' in pl or '/permission' in pl:
+            return 'permission'
+        if re.search(r"/(role|roles)(/|$)", pl):
+            return 'role'
+        if '/employee/change-request' in pl:
+            return 'change_request'
+        return None
+
+    def _extract_target_id_from_path(path: str) -> int | None:
+        try:
+            m = re.search(r"/(\d+)(?:$|[/?#])", path)
+            return int(m.group(1)) if m else None
+        except Exception:
+            return None
+
     def _run_one(tc: TestCase):
         mut = tc.mutation or {}
         # Tentukan role/token yang dipakai (support eskalasi percobaan via mutation.as_role)
@@ -277,6 +438,19 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
 
         # Mutasi path: ganti {id}-like
         path = _fill_placeholders(tc.path, as_role, tc.self_access)
+
+        # Special case: assign role to user -> enforce user_id=112 and JSON body
+        try:
+            if str(tc.method).upper() == 'POST' and '/user/' in path and '/roles' in path:
+                fixed_uid = 112
+                # normalize any placeholder or numeric segment to 112 for /user/{user_id}/roles
+                path = re.sub(r"(/user/)(?:\d+|\{[^}/]+\})(/roles)", fr"\1{fixed_uid}\2", path)
+                # enforce minimal body for role assignment
+                mut.setdefault('json', {})
+                if isinstance(mut['json'], dict):
+                    mut['json'].update({"id_role": 1, "role_name": "Admin_HC"})
+        except Exception:
+            pass
 
         # Kirim request
         # Query param duplication for ID injection
@@ -302,18 +476,140 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
             "use_no_auth": use_no_auth
         }
 
+        json_body = mut.get("json") if isinstance(mut.get("json"), dict) else None
+        # Auto-generate minimal JSON body from OpenAPI schema if needed
+        if json_body is None and str(tc.method).upper() in ("POST","PUT","PATCH") and isinstance(openapi, dict):
+            try:
+                def _req_schema(oas: dict, pth: str, m: str):
+                    try:
+                        node = (oas.get('paths', {}) or {}).get(pth) or {}
+                        op = node.get(m.lower()) or node.get(m.upper()) or {}
+                        rb = (op.get('requestBody') or {}).get('content', {})
+                        app = rb.get('application/json') or rb.get('application/x-www-form-urlencoded') or {}
+                        return app.get('schema') or {}
+                    except Exception:
+                        return {}
+                def _minimal(schema: dict):
+                    if not isinstance(schema, dict):
+                        return None
+                    # Resolve simple allOf/oneOf first element
+                    for comb in ('allOf','oneOf','anyOf'):
+                        if isinstance(schema.get(comb), list) and schema.get(comb):
+                            return _minimal(schema.get(comb)[0])
+                    t = (schema.get('type') or '').lower()
+                    if '$ref' in schema:
+                        # no resolver; fallback to object
+                        t = t or 'object'
+                    if t == 'object' or ('properties' in schema):
+                        props = schema.get('properties') or {}
+                        req = schema.get('required') or []
+                        body = {}
+                        for k in req:
+                            pt = (props.get(k, {}).get('type') or '').lower()
+                            if pt == 'string' or pt == '':
+                                body[k] = "test"
+                            elif pt in ('integer','number'):
+                                body[k] = 1
+                            elif pt == 'boolean':
+                                body[k] = False
+                            elif pt == 'array':
+                                body[k] = []
+                            elif pt == 'object':
+                                body[k] = {}
+                            else:
+                                body[k] = "test"
+                        return body or None
+                    return None
+                schema = _req_schema(openapi, tc.path, tc.method)
+                if not schema and isinstance(adjustments, dict):
+                    # Attempt lookup by normalized path (strip numbers -> {id})
+                    try:
+                        templ = re.sub(r"/(\d+)(?:$|/)", "/{id}", tc.path)
+                        schema = _req_schema(openapi, templ, tc.method)
+                    except Exception:
+                        pass
+                json_body = _minimal(schema)
+                # Special case: change_request draft for PUT flow
+                if '/employee/change-request' in tc.path.lower() and str(tc.method).upper() == 'POST':
+                    if isinstance(json_body, dict) and 'submit' in json_body:
+                        json_body['submit'] = False
+                if mut.get('json') and isinstance(mut.get('json'), dict):
+                    # Allow explicit override from mutation
+                    json_body = mut.get('json')
+            except Exception:
+                json_body = None
+
+        # Guard for sensitive DELETE based on adjustments
+        if str(tc.method).upper() == 'DELETE' and isinstance(adjustments, dict):
+            rkey = _resource_key_from_path(tc.path)
+            tid = _extract_target_id_from_path(path)
+            if rkey and tid is not None:
+                allow_set = set(adjustments.get('allow_delete', {}).get(rkey, []))
+                deny_set = set(adjustments.get('deny_delete', {}).get(rkey, []))
+                # Skip delete if explicitly denied
+                if tid in deny_set:
+                    # record skip
+                    import time as _t
+                    memory.record_result(Result(tc=tc, status_code=0, body={"skipped": True, "reason": "protected id (deny_delete)"}, ts=_t.time(), artifact=None))
+                    return
+                # If allow list exists, only allow when in allow_set
+                if allow_set and tid not in allow_set:
+                    import time as _t
+                    memory.record_result(Result(tc=tc, status_code=0, body={"skipped": True, "reason": "id not in allow_delete"}, ts=_t.time(), artifact=None))
+                    return
+
         resp = http.request(
             tc.method, 
             path, 
             token=token, 
             params=params, 
             extra_headers=extra_headers,
+            json_body=json_body,
             role=tc.role,
             bac_type=bac_type,
             test_context=test_context
         )
         import time as _t
         memory.record_result(Result(tc=tc, status_code=resp["status_code"], body=resp.get("body", {}), ts=_t.time(), artifact=resp.get("artifact")))
+        # If created a resource, mark it for potential cleanup logic and store ids for placeholders
+        try:
+            if str(tc.method).upper() == 'POST':
+                rkey = _resource_key_from_path(tc.path)
+                cands = _scan_id_candidates(resp.get('body', {}))
+                # map resource -> common placeholder keys
+                placeholder_keys = {
+                    'permission': ['id_permission', 'permission_id', 'id'],
+                    'role': ['role_id', 'id_role', 'id'],
+                    'consent': ['id_consent', 'consent_id', 'id'],
+                    'change_request': ['id_change_request', 'change_request_id', 'id'],
+                }
+                if rkey and isinstance(cands, dict) and cands:
+                    keys = placeholder_keys.get(rkey, ['id'])
+                    rid_val = None
+                    for field in keys:
+                        if field in cands:
+                            rid_val = cands[field]
+                            break
+                    if rid_val is None and 'id' in cands:
+                        rid_val = cands['id']
+                    if isinstance(rid_val, int) and rid_val > 0:
+                        memory.mark_created(rkey, as_role, rid_val)
+                        # Store into resource_ids for future placeholder filling
+                        for k in keys:
+                            base = k
+                            if base.endswith('_id'):
+                                base = base[:-3]
+                            if base.startswith('id_'):
+                                base = base[3:]
+                            memory.store_resource_id(as_role, base, rid_val)
+        except Exception:
+            pass
+        # Learn IDs from response to improve future placeholder filling
+        try:
+            owner_role = as_role if tc.self_access else (f"{as_role}_2" if hasattr(auth, 'roles') and f"{as_role}_2" in auth.roles else as_role)
+            _learn_ids_from_response(tc, resp.get('body', {}), owner_role)
+        except Exception:
+            pass
 
     if concurrency and concurrency > 1:
         try:
@@ -1021,6 +1317,12 @@ class AgentOrchestrator:
         for tc in generated:
             memory.record_test(tc)
 
+        # Append best-practice CRUD flows in safe order based on adjustments
+        try:
+            self._append_crud_flows(openapi, memory, available_auth_roles)
+        except Exception:
+            pass
+
         # EXECUTE/OBSERVE/REFLECT with depth iterations
         max_depth = int(agent.get("depth", 1))
         llm_cfg = agent.get("llm", {}) if isinstance(agent, dict) else {}
@@ -1028,13 +1330,17 @@ class AgentOrchestrator:
         followups_enabled = bool(llm_cfg.get("followups_enabled")) and bool(self.client)
         redact_enabled = bool(llm_cfg.get("redact_enabled", True))
         redact_max_chars = int(llm_cfg.get("redact_max_chars", 1000))
+        # Load adjustments (safe delete lists) and enforce sequential execution for learning
+        adjustments = _load_adjustments()
+        forced_conc = 1
+
         for cur_depth in range(0, max_depth):
             # execute tests at current depth only
             pending = [t for t in memory.tests if t.depth == cur_depth]
             if not pending and cur_depth > 0:
                 break
             # Run
-            execute(memory, http, auth, policy, tests=pending, concurrency=int(agent.get("concurrency", 1)))
+            execute(memory, http, auth, policy, tests=pending, concurrency=forced_conc, adjustments=adjustments, openapi=openapi)
             # Observe
             observations = observe(memory.results, policy)
             # Generate follow-ups if any
@@ -1076,3 +1382,96 @@ class AgentOrchestrator:
             "report_path": report_path,
             "reflection": reflection,
         }
+
+    # --- Best-practice CRUD sequence generator ---
+    def _append_crud_flows(self, openapi: dict, memory: Memory, available_roles: List[str]):
+        if not isinstance(openapi, dict) or not openapi.get('paths'):
+            return
+        def has_ep(m, p):
+            return (m.upper(), normalize_path(p)) in {(e["method"].upper(), normalize_path(e["path"])) for e in extract_paths_from_openapi(openapi)}
+        def choose_role(prefer: str, fallback_first=True):
+            if prefer in available_roles:
+                return prefer
+            return available_roles[0] if (available_roles and fallback_first) else None
+        admin = choose_role('Admin_HC') or (available_roles[0] if available_roles else None)
+        employee = choose_role('Employee') or (available_roles[0] if available_roles else None)
+        employee2 = choose_role('Employee_2', fallback_first=False) or employee
+
+        # permissions
+        try:
+            seq = []
+            if has_ep('GET','/permissions'):
+                seq.append(TestCase(method='GET', path='/permissions', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('POST','/permissions'):
+                seq.append(TestCase(method='POST', path='/permissions', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('GET','/permissions/{id_permission}'):
+                seq.append(TestCase(method='GET', path='/permissions/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('PUT','/permissions/{id_permission}'):
+                seq.append(TestCase(method='PUT', path='/permissions/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('DELETE','/permissions/{id_permission}'):
+                seq.append(TestCase(method='DELETE', path='/permissions/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            for tc in seq:
+                memory.record_test(tc)
+        except Exception:
+            pass
+
+        # roles
+        try:
+            seq = []
+            if has_ep('GET','/roles'):
+                seq.append(TestCase(method='GET', path='/roles', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('POST','/roles'):
+                seq.append(TestCase(method='POST', path='/roles', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('GET','/role/{role_id}'):
+                seq.append(TestCase(method='GET', path='/role/{role_id}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('PUT','/role/{role_id}'):
+                seq.append(TestCase(method='PUT', path='/role/{role_id}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('DELETE','/role/{role_id}'):
+                seq.append(TestCase(method='DELETE', path='/role/{role_id}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            for tc in seq:
+                memory.record_test(tc)
+        except Exception:
+            pass
+
+        # consents
+        try:
+            seq = []
+            # list endpoints may vary; prefer /employee/consents/list if present
+            if has_ep('GET','/employee/consents/list'):
+                seq.append(TestCase(method='GET', path='/employee/consents/list', role=admin, self_access=True, mutation={"type":"baseline"}))
+            elif has_ep('GET','/employee/consents/active'):
+                seq.append(TestCase(method='GET', path='/employee/consents/active', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('POST','/employee/consents'):
+                seq.append(TestCase(method='POST', path='/employee/consents', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('GET','/employee/consents/{id_consent}'):
+                seq.append(TestCase(method='GET', path='/employee/consents/{id_consent}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('PUT','/employee/consents/{id_consent}'):
+                seq.append(TestCase(method='PUT', path='/employee/consents/{id_consent}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('DELETE','/employee/consents/{id_consent}'):
+                seq.append(TestCase(method='DELETE', path='/employee/consents/{id_consent}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            for tc in seq:
+                memory.record_test(tc)
+        except Exception:
+            pass
+
+        # change requests (employee flow + IDOR check)
+        try:
+            seq = []
+            if has_ep('GET','/employee/change-request'):
+                seq.append(TestCase(method='GET', path='/employee/change-request', role=employee, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('POST','/employee/change-request'):
+                # draft to enable PUT later
+                seq.append(TestCase(method='POST', path='/employee/change-request', role=employee, self_access=True, mutation={"type":"baseline", "json": {"submit": False}}))
+            if has_ep('GET','/employee/change-request/{id_change_request}'):
+                # self check
+                seq.append(TestCase(method='GET', path='/employee/change-request/{id_change_request}', role=employee, self_access=True, mutation={"type":"baseline"}))
+                # IDOR check by other employee
+                if employee2 and employee2 != employee:
+                    seq.append(TestCase(method='GET', path='/employee/change-request/{id_change_request}', role=employee2, self_access=False, mutation={"type":"IDOR", "variant":"other"}))
+            if has_ep('PUT','/employee/change-request/{id_change_request}'):
+                seq.append(TestCase(method='PUT', path='/employee/change-request/{id_change_request}', role=employee, self_access=True, mutation={"type":"baseline"}))
+            # avoid DELETE by default for change-request unless explicitly desired
+            for tc in seq:
+                memory.record_test(tc)
+        except Exception:
+            pass

@@ -1,16 +1,47 @@
-(.venv) PS C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\scripts> python check_setup.py
-[INFO] Checking local setup...
+(.venv) PS C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\scripts> python run_orchestrator.py
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1761104630.626914   34308 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+Traceback (most recent call last):
+  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\urllib3\util\url.py", line 423, in parse_url
+    host, port = _HOST_PORT_RE.match(host_port).groups()  # type: ignore[union-attr]
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'groups'
 
-[OK ] role_permissions mapping found
-[OK ] C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\config\agent.yaml
-[OK ] C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\config\auth.yaml
-[OK ] C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\config\policy.yaml
-[OK ] C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\data\roles.csv
-[OK ] C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\data\permissions.csv
-[OK ] base_url (agent.yaml) = http://127.0.0.1:8000/
-[WARN] LLM not configured (or missing key). Agent will run in deterministic mode.
-[OK ] API reachable at http://127.0.0.1:8000/
+The above exception was the direct cause of the following exception:
 
-==================================================
-[WARN] Issues found:
-  [WARN] Missing env var: API_BASE_URL (agent.yaml base_url will be used by orchestrator)
+Traceback (most recent call last):
+  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\requests\models.py", line 433, in prepare_url    
+    scheme, auth, host, port, path, query, fragment = parse_url(url)
+                                                      ^^^^^^^^^^^^^^
+  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\urllib3\util\url.py", line 449, in parse_url     
+    raise LocationParseError(source_url) from e
+urllib3.exceptions.LocationParseError: Failed to parse: http://127.0.0.1:8000I2/roles
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\scripts\run_orchestrator.py", line 28, in <module>
+    out = agent.run()
+          ^^^^^^^^^^^
+  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\orchestrator.py", line 1343, in run       
+    execute(memory, http, auth, policy, tests=pending, concurrency=forced_conc, adjustments=adjustments, openapi=openapi)
+  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\orchestrator.py", line 624, in execute    
+    _run_one(tc)
+  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\orchestrator.py", line 561, in _run_one   
+    resp = http.request(
+           ^^^^^^^^^^^^^
+  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\tools_http.py", line 181, in request      
+    raise last_exc
+  File "C:\Users\carol\ai_agent_starter\ai_agent_starter\ai_agent\core\tools_http.py", line 112, in request      
+    r = sess.request(method.upper(), url, headers=headers, params=params, json=json_body, timeout=self.timeout_s)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\requests\sessions.py", line 575, in request      
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\requests\sessions.py", line 484, in prepare_request
+    p.prepare(
+  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\requests\models.py", line 367, in prepare        
+    self.prepare_url(url, params)
+  File "C:\Users\carol\ai_agent_starter\.venv\Lib\site-packages\requests\models.py", line 435, in prepare_url    
+    raise InvalidURL(*e.args)
+requests.exceptions.InvalidURL: Failed to parse: http://127.0.0.1:8000I2/roles

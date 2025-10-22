@@ -52,6 +52,9 @@ def save_json_report(path: str, results: List[Result], policy, tests: List[TestC
             f.write(f"## Summary\n- Total tests: {total_tests}\n- Potential vulns (FN): {pot_vulns}\n- Coverage: {cov['coverage_pct']}% of {cov['total_pairs']} pairs\n- Time to first detect (s): {ttd.get('seconds')}\n\n")
             f.write("## Confusion\n")
             f.write(f"- TP: {cf['TP']}\n- FP: {cf['FP']}\n- FN: {cf['FN']}\n- TN: {cf['TN']}\n\n")
+            # Optional best-practice note: 404s are not BAC findings
+            if 'NF' in cf:
+                f.write(f"- NF (404 not found): {cf['NF']}\n\n")
             f.write("## Artifacts\n")
             for a in artifacts[:50]:
                 f.write(f"- {a['method']} {a['path']} [{a['role']}] -> {a['artifact']}\n")

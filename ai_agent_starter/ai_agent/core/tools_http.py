@@ -28,15 +28,17 @@ class HttpClient:
             # Normalize role name for folder (lowercase, replace spaces/special chars)
             role_folder = role.lower().replace(' ', '_').replace('-', '_')
             
-            # Determine subfolder based on BAC type
-            if bac_type:
-                subfolder = bac_type.lower()
-            else:
-                # Default to baseline if no type specified
-                subfolder = "baseline"
+            # Determine subfolder based on BAC type, mapped to expected labels
+            bt = (bac_type or "baseline").strip().lower()
+            label = (
+                "IDOR" if bt == "horizontal" else
+                "BOLA" if bt == "vertical" else
+                "AUTH" if bt == "auth" else
+                "BASELINE"
+            )
             
             # Optional target label (e.g., to_admin, to_employee, to_same_role)
-            parts = [self.artifacts_dir, role_folder, subfolder]
+            parts = [self.artifacts_dir, role_folder, label]
             if target_label:
                 safe_target = str(target_label).lower().strip()
                 safe_target = safe_target.replace(' ', '_').replace('-', '_')
@@ -90,7 +92,17 @@ class HttpClient:
             bac_type: BAC test type - 'horizontal', 'vertical', 'baseline', 'auth'
             test_context: Additional context (self_access, mutation info) for metadata
         """
-        url = f"{self.base_url}{path}"
+        # Normalize path defensively: strip BOM and enforce leading slash
+        try:
+            p = str(path)
+        except Exception:
+            p = "/"
+        # Strip Unicode BOM if present
+        p = p.lstrip('\ufeff')
+        # Ensure leading slash
+        if not p.startswith('/'):
+            p = '/' + p
+        url = f"{self.base_url}{p}"
         headers = {"Accept": "application/json"}
         if token:
             # Use configured header and type
@@ -113,6 +125,9 @@ class HttpClient:
                     resp = {"status_code": r.status_code, "body": self._safe_json(r)}
                 # Simpan artefak dengan struktur terorganisir
                 ts = int(time.time()*1000)
+                # Human-friendly UTC time for logs (DD-MM-YYYY HH:MM)
+                from datetime import datetime, timezone
+                ts_str = datetime.now(timezone.utc).strftime("%d-%m-%Y %H:%M")
                 safe = path.strip('/').replace('/','_').replace('?','_').replace('&','_').replace('=','-')
                 name = f"{ts}_{method}_{safe}.json"
                 
@@ -163,6 +178,9 @@ class HttpClient:
                         "role": role,
                         "bac_type": bac_type,
                         "timestamp": ts,
+                        "timestamp_str": ts_str,
+                        # Convenience combined label (e.g., "employee (BOLA)") for human scanning
+                        "folder_label": f"{(role or '').strip().lower().replace(' ','_').replace('-','_')} (" + ("IDOR" if str(bac_type).lower()=="horizontal" else "BOLA" if str(bac_type).lower()=="vertical" else "AUTH" if str(bac_type).lower()=="auth" else "BASELINE") + ")",
                         "test_context": test_context or {}
                     }
                 }

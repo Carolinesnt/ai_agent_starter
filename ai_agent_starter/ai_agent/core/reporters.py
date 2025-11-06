@@ -3,7 +3,7 @@ from typing import List, Dict, Any
 from .memory import Result, TestCase
 from .evaluators import confusion_counts, metrics, coverage, time_to_detect, expected_status, classify
 
-def save_json_report(path: str, results: List[Result], policy, tests: List[TestCase], roles: list, endpoints: list, start_ts: float = 0.0, reflection: Dict[str, Any] = None):
+def save_json_report(path: str, results: List[Result], policy, tests: List[TestCase], roles: list, endpoints: list, start_ts: float = 0.0, reflection: Dict[str, Any] = None, llm_summary: str = None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     cf = confusion_counts(results, policy)
     m = metrics(cf)
@@ -33,6 +33,7 @@ def save_json_report(path: str, results: List[Result], policy, tests: List[TestC
             "total_tests": total_tests,
             "potential_vulnerabilities": pot_vulns,
         },
+        "llm_summary": llm_summary or "",
         "artifacts": artifacts,
         "reflection": reflection or {},
         "results": [{
@@ -43,23 +44,49 @@ def save_json_report(path: str, results: List[Result], policy, tests: List[TestC
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
-    # Also write a brief Markdown summary next to the JSON report
+    # Also write a comprehensive Markdown report with LLM summary
     md_path = path.replace('.json', '.md')
     try:
         with open(md_path, "w", encoding="utf-8") as f:
-            f.write(f"# BAC Test Report\n\n")
-            f.write(f"Generated: {data['generated_at']}\n\n")
-            f.write(f"## Summary\n- Total tests: {total_tests}\n- Potential vulns (FN): {pot_vulns}\n- Coverage: {cov['coverage_pct']}% of {cov['total_pairs']} pairs\n- Time to first detect (s): {ttd.get('seconds')}\n\n")
-            f.write("## Confusion\n")
-            f.write(f"- TP: {cf['TP']}\n- FP: {cf['FP']}\n- FN: {cf['FN']}\n- TN: {cf['TN']}\n\n")
-            # Optional best-practice note: 404s are not BAC findings
-            if 'NF' in cf:
-                f.write(f"- NF (404 not found): {cf['NF']}\n\n")
-            f.write("## Artifacts\n")
+            f.write(f"# 🔒 BAC Security Test Report\n\n")
+            f.write(f"**Generated:** {data['generated_at']}\n\n")
+            f.write("---\n\n")
+            
+            # LLM Summary (if available)
+            if llm_summary:
+                f.write(f"## 🤖 AI Security Assessment\n\n")
+                f.write(llm_summary)
+                f.write("\n\n---\n\n")
+            
+            f.write(f"## 📊 Test Execution Summary\n\n")
+            f.write(f"- **Total Tests:** {total_tests}\n")
+            f.write(f"- **Potential Vulnerabilities (FN):** {pot_vulns} 🚨\n")
+            f.write(f"- **Coverage:** {cov['coverage_pct']}% of {cov['total_pairs']} role×endpoint pairs\n")
+            f.write(f"- **Time to First Detection:** {ttd.get('seconds')} seconds\n\n")
+            
+            f.write("## 🎯 Performance Metrics\n\n")
+            f.write(f"- **Accuracy:** {round(m.get('accuracy', 0) * 100, 1)}%\n")
+            f.write(f"- **Precision:** {round(m.get('precision', 0) * 100, 1)}%\n")
+            f.write(f"- **Recall:** {round(m.get('recall', 0) * 100, 1)}%\n")
+            f.write(f"- **F1 Score:** {round(m.get('f1', 0) * 100, 1)}%\n\n")
+            
+            f.write("## 📋 Confusion Matrix\n\n")
+            f.write(f"- ✅ **TP (True Positives):** {cf['TP']} - Allowed endpoints working correctly\n")
+            f.write(f"- ✅ **TN (True Negatives):** {cf['TN']} - Unauthorized access correctly blocked\n")
+            f.write(f"- ⚠️ **FP (False Positives):** {cf['FP']} - Allowed endpoints incorrectly denied\n")
+            f.write(f"- 🚨 **FN (False Negatives):** {cf['FN']} - **VULNERABILITIES DETECTED**\n")
+            if cf.get('ERR', 0) > 0:
+                f.write(f"- ❌ **ERR (System Errors):** {cf['ERR']} - 5xx responses\n")
+            if cf.get('NF', 0) > 0:
+                f.write(f"- ℹ️ **NF (Not Found):** {cf['NF']} - 404 responses (not BAC findings per OWASP)\n")
+            f.write("\n")
+            
+            f.write("## 📁 Test Artifacts\n\n")
+            f.write("Full request/response artifacts saved for forensic analysis:\n\n")
             for a in artifacts[:50]:
-                f.write(f"- {a['method']} {a['path']} [{a['role']}] -> {a['artifact']}\n")
+                f.write(f"- `{a['method']} {a['path']}` [{a['role']}] → {a['artifact']}\n")
             if len(artifacts) > 50:
-                f.write(f"... and {len(artifacts)-50} more\n")
+                f.write(f"\n... and {len(artifacts)-50} more artifacts\n")
     except Exception:
         pass
     return path

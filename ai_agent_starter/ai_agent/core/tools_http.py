@@ -75,6 +75,57 @@ class HttpClient:
             except Exception:
                 masked[target_key] = "***masked***"
         return masked
+    
+    def _mask_sensitive_data(self, data: Any) -> Any:
+        """
+        Recursively mask sensitive information in JSON data.
+        Masks: password, access_token, refresh_token, token, secret, api_key, etc.
+        """
+        if data is None:
+            return None
+        
+        # Sensitive field keywords to mask
+        sensitive_keywords = {
+            'password', 'passwd', 'pwd', 
+            'access_token', 'refresh_token', 'token', 'bearer',
+            'secret', 'api_key', 'apikey', 'private_key',
+            'client_secret', 'auth_token', 'session_id',
+            'jwt', 'authorization'
+        }
+        
+        def _should_mask(key: str) -> bool:
+            """Check if field should be masked based on keywords"""
+            key_lower = str(key).lower()
+            return any(keyword in key_lower for keyword in sensitive_keywords)
+        
+        def _mask_value(value: str) -> str:
+            """Mask a sensitive value, preserving first/last chars for debugging"""
+            if not isinstance(value, str) or len(value) == 0:
+                return "***masked***"
+            if len(value) <= 8:
+                return "***masked***"
+            # Show first 4 and last 4 chars
+            return f"{value[:4]}...{value[-4:]}"
+        
+        def _mask_recursive(obj: Any) -> Any:
+            """Recursively traverse and mask sensitive data"""
+            if isinstance(obj, dict):
+                masked = {}
+                for key, val in obj.items():
+                    if _should_mask(key):
+                        if isinstance(val, str):
+                            masked[key] = _mask_value(val)
+                        else:
+                            masked[key] = "***masked***"
+                    else:
+                        masked[key] = _mask_recursive(val)
+                return masked
+            elif isinstance(obj, list):
+                return [_mask_recursive(item) for item in obj]
+            else:
+                return obj
+        
+        return _mask_recursive(data)
 
     def request(self, method: str, path: str, token: Optional[str], params=None, json_body=None, extra_headers: Optional[Dict[str, str]] = None, 
                 role: str = None, bac_type: str = None, test_context: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -164,16 +215,22 @@ class HttpClient:
                 # Generate artifact path with role/type/target organization
                 artifact_full_path = self._artifact_path(name, role=role, bac_type=bac_type, target_label=target_label)
                 
+                # Mask sensitive data in request/response before saving
+                masked_headers = self._mask_headers_for_artifact(headers)
+                masked_params = self._mask_sensitive_data(params) if params else None
+                masked_json_body = self._mask_sensitive_data(json_body) if json_body else None
+                masked_response = self._mask_sensitive_data(resp)
+                
                 # Build artifact metadata
                 artifact_data = {
                     "request": {
                         "method": method, 
                         "url": url, 
-                        "headers": self._mask_headers_for_artifact(headers), 
-                        "params": params, 
-                        "json": json_body
+                        "headers": masked_headers, 
+                        "params": masked_params, 
+                        "json": masked_json_body
                     },
-                    "response": resp,
+                    "response": masked_response,
                     "metadata": {
                         "role": role,
                         "bac_type": bac_type,

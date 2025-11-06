@@ -5,4 +5,3 @@ permission_id,permission_code,permission_group,permission_desc
 4,attachment,Request Management,Permission to attach document for update personal data
 5,export_pdf,Data Management,Permission to export personal data
 6,rbac_admin,user_management,Allows full access to manage roles permissions and user access
-21,Pengujian kedua,Testing,pengujian permission kedua di update

@@ -141,12 +141,12 @@ def confusion_counts(results: List[Result], policy) -> Dict[str, int]:
         exp = expected_status(policy, r.tc)
         lab = classify(exp, r.status_code)
         c[lab] += 1
-    # Map ke TP/FP/FN/TN konservatif: treat TP_ALLOW as TN (benar, bukan temuan)
+    # Map TP_ALLOW to TP: allowed endpoints returning 200 are True Positives
     return {
-        "TP": c.get("TP",0),
+        "TP": c.get("TP",0) + c.get("TP_ALLOW",0),
         "FP": c.get("FP",0),
         "FN": c.get("FN",0),
-        "TN": c.get("TN",0) + c.get("TP_ALLOW",0),
+        "TN": c.get("TN",0),
         "ERR": c.get("ERROR",0),
         "NF": c.get("NOT_FOUND",0),
     }

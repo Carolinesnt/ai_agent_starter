@@ -22,14 +22,14 @@ rbac_rules:
       #rbac_admin
       - GET:/roles
       - POST:/roles
-      - GET:/role/{role_id}
-      - PUT:/role/{role_id}
-      - DELETE:/role/{role_id}
-      - POST:/role/{role_id}/permissions
+      - GET:/role/{id_role}
+      - PUT:/role/{id_role}
+      - DELETE:/role/{id_role}
+      - POST:/role/{id_role}/permissions
       - GET:/permissions
       - POST:/permissions
-      - PUT:/permissions/{id_permission}
-      - DELETE:/permissions/{id_permission}
+      - PUT:/permission/{id_permission}
+      - DELETE:/permission/{id_permission}
       - GET:/users
       - GET:/user/{user_id}
       - POST:/user/{user_id}/roles

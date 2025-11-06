@@ -11,6 +11,13 @@ from ai_agent.core.utils import load_rbac_matrix, get_all_roles, get_role_permis
 import os
 from pathlib import Path
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # Load .env from current directory or parent
+except ImportError:
+    pass  # python-dotenv not installed, skip
+
 try:
     # Optional providers
     from openai import OpenAI
@@ -1250,6 +1257,86 @@ class AgentOrchestrator:
         except Exception:
             return []
 
+    def _generate_summary_recommendations(self, cf: Dict[str, int], m: Dict[str, float], cov: Dict[str, Any], results: List[Result], policy: dict, vulns: int) -> str:
+        """Generate comprehensive LLM-based security assessment summary and actionable recommendations."""
+        try:
+            # Load summarizer prompt
+            prompt_path = Path(__file__).parent.parent / "prompts" / "summarizer.md"
+            if not prompt_path.exists():
+                return "⚠️ Summary generation skipped (prompt template not found)"
+            
+            prompt_template = prompt_path.read_text(encoding="utf-8")
+            
+            # Collect vulnerability details
+            from .evaluators import expected_status, classify
+            vulnerabilities_list = []
+            for r in results:
+                exp = expected_status(policy, r.tc)
+                lab = classify(exp, r.status_code)
+                if lab == "FN":  # False Negative = Vulnerability
+                    vulnerabilities_list.append({
+                        "method": r.tc.method,
+                        "path": r.tc.path,
+                        "role": r.tc.role,
+                        "status": r.status_code,
+                        "expected": "403/401 (Deny)",
+                        "actual": "200 (Allow)",
+                        "type": r.tc.mutation.get("type", "Unknown") if r.tc.mutation else "Unknown"
+                    })
+            
+            # Format vulnerabilities for prompt
+            vuln_text = ""
+            if vulnerabilities_list:
+                vuln_text = "\n".join([
+                    f"- **{v['method']} {v['path']}** (Role: {v['role']}, Type: {v['type']})\n  - Expected: {v['expected']}, Got: {v['actual']}"
+                    for v in vulnerabilities_list
+                ])
+            else:
+                vuln_text = "✅ No vulnerabilities detected (all unauthorized access attempts were correctly blocked)"
+            
+            # Fill prompt template
+            fp_rate = round((cf.get("FP", 0) / max(1, cf.get("FP", 0) + cf.get("TN", 0))) * 100, 1)
+            
+            prompt = prompt_template.format(
+                total_tests=len(results),
+                accuracy=round(m.get("accuracy", 0) * 100, 1),
+                precision=round(m.get("precision", 0) * 100, 1),
+                recall=round(m.get("recall", 0) * 100, 1),
+                f1=round(m.get("f1", 0) * 100, 1),
+                fp_rate=fp_rate,
+                tp=cf.get("TP", 0),
+                tn=cf.get("TN", 0),
+                fp=cf.get("FP", 0),
+                fn=cf.get("FN", 0),
+                err=cf.get("ERR", 0),
+                nf=cf.get("NF", 0),
+                endpoints=cov.get("endpoints", 0),
+                roles=cov.get("roles", 0),
+                total_pairs=cov.get("total_pairs", 0),
+                tested_pairs=cov.get("tested_pairs", 0),
+                coverage=cov.get("coverage_pct", 0),
+                vulnerabilities_list=vuln_text
+            )
+            
+            # Call LLM
+            if self.llm_provider == "google_genai" and genai:
+                model = genai.GenerativeModel(self.llm_model)
+                response = model.generate_content(prompt)
+                return response.text
+            elif self.llm_provider == "openai" and self.client:
+                response = self.client.chat.completions.create(
+                    model=self.llm_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    max_tokens=2000
+                )
+                return response.choices[0].message.content
+            else:
+                return "⚠️ LLM summary unavailable (provider not configured)"
+        
+        except Exception as e:
+            return f"⚠️ Summary generation failed: {str(e)}"
+
     def run(self) -> dict:
         agent = load_yaml(os.path.join(self.config_dir, "agent.yaml"))
         start_ts = time.time()
@@ -1469,20 +1556,39 @@ class AgentOrchestrator:
         else:
             reflection = reflect(observations_all)
 
-        ts = time.strftime("%Y%m%d-%H%M%S")
-        report_path = os.path.join(self.runs_dir, f"report-{ts}.json")
-        save_json_report(report_path, memory.results, policy, memory.tests, roles, endpoints, start_ts=start_ts, reflection=reflection)
-
-        # Summarize
-        from .evaluators import confusion_counts, metrics as _metrics
+        # Generate comprehensive LLM summary & recommendations
+        from .evaluators import confusion_counts, metrics as _metrics, coverage as _coverage
         cf = confusion_counts(memory.results, policy)
         m = _metrics(cf)
+        cov = _coverage(memory.tests, roles, endpoints)
         vulns = int(cf.get("FN", 0))
+        
+        llm_summary = self._generate_summary_recommendations(
+            cf, m, cov, memory.results, policy, vulns
+        )
+
+        # Generate professional report filename with descriptive naming
+        # Format: BAC_Security_Test_Report-YYYY-MM-DD_HH-MM-SS.json
+        timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+        report_name = f"BAC_Security_Test_Report-{timestamp}.json"
+        report_path = os.path.join(self.runs_dir, report_name)
+        save_json_report(report_path, memory.results, policy, memory.tests, roles, endpoints, start_ts=start_ts, reflection=reflection, llm_summary=llm_summary)
+        
+        # Print summary to console
+        print("\n" + "="*80)
+        print("🤖 AI SECURITY ASSESSMENT SUMMARY")
+        print("="*80)
+        print(llm_summary)
+        print("="*80)
+        print(f"\n📄 Full report saved to: {report_path}")
+        print(f"📊 Markdown summary: {report_path.replace('.json', '.md')}\n")
+        
         return {
             "total_tests": len(memory.tests),
             "vulnerabilities": vulns,
             "report_path": report_path,
             "reflection": reflection,
+            "llm_summary": llm_summary,
             "metrics": m,
         }
 
@@ -1507,12 +1613,12 @@ class AgentOrchestrator:
                 seq.append(TestCase(method='GET', path='/permissions', role=admin, self_access=True, mutation={"type":"baseline"}))
             if has_ep('POST','/permissions'):
                 seq.append(TestCase(method='POST', path='/permissions', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('GET','/permissions/{id_permission}'):
-                seq.append(TestCase(method='GET', path='/permissions/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('PUT','/permissions/{id_permission}'):
-                seq.append(TestCase(method='PUT', path='/permissions/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('DELETE','/permissions/{id_permission}'):
-                seq.append(TestCase(method='DELETE', path='/permissions/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('GET','/permission/{id_permission}'):
+                seq.append(TestCase(method='GET', path='/permission/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('PUT','/permission/{id_permission}'):
+                seq.append(TestCase(method='PUT', path='/permission/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('DELETE','/permission/{id_permission}'):
+                seq.append(TestCase(method='DELETE', path='/permission/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
             for tc in seq:
                 memory.record_test(tc)
         except Exception:
@@ -1542,12 +1648,12 @@ class AgentOrchestrator:
                 seq.append(TestCase(method='GET', path='/roles', role=admin, self_access=True, mutation={"type":"baseline"}))
             if has_ep('POST','/roles'):
                 seq.append(TestCase(method='POST', path='/roles', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('GET','/role/{role_id}'):
-                seq.append(TestCase(method='GET', path='/role/{role_id}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('PUT','/role/{role_id}'):
-                seq.append(TestCase(method='PUT', path='/role/{role_id}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('DELETE','/role/{role_id}'):
-                seq.append(TestCase(method='DELETE', path='/role/{role_id}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('GET','/role/{id_role}'):
+                seq.append(TestCase(method='GET', path='/role/{id_role}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('PUT','/role/{id_role}'):
+                seq.append(TestCase(method='PUT', path='/role/{id_role}', role=admin, self_access=True, mutation={"type":"baseline"}))
+            if has_ep('DELETE','/role/{id_role}'):
+                seq.append(TestCase(method='DELETE', path='/role/{id_role}', role=admin, self_access=True, mutation={"type":"baseline"}))
             for tc in seq:
                 memory.record_test(tc)
         except Exception:

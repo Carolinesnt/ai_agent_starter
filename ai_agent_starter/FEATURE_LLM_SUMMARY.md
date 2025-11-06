@@ -7,7 +7,9 @@ BYE BAC Agent sekarang dilengkapi dengan **LLM-powered security assessment summa
 ## What's New?
 
 ### 1. **Automatic LLM Analysis**
+
 Setelah test selesai, agent akan:
+
 - 📊 Menganalisis confusion matrix & metrics
 - 🚨 Mengevaluasi severity setiap vulnerability
 - 💡 Memberikan rekomendasi prioritas tinggi/medium/low
@@ -16,6 +18,7 @@ Setelah test selesai, agent akan:
 ### 2. **Comprehensive Report Format**
 
 #### **JSON Report** (`report-YYYYMMDD-HHMMSS.json`)
+
 ```json
 {
   "generated_at": "04-11-2025 16:30",
@@ -27,19 +30,24 @@ Setelah test selesai, agent akan:
 ```
 
 #### **Markdown Report** (`report-YYYYMMDD-HHMMSS.md`)
+
 ```markdown
 # 🔒 BAC Security Test Report
 
 ## 🤖 AI Security Assessment
 
 ### 1. Executive Summary
+
 Overall security posture: **Good**
+
 - 6 vulnerabilities detected (4 HIGH, 2 MEDIUM)
 - FP rate: 4.0% (acceptable)
 - Coverage: 100% (excellent)
 
 ### 2. Vulnerability Analysis
+
 **HIGH Severity - BOLA Privilege Escalation**
+
 - Endpoint: `GET /roles`
 - Risk: Employee can access admin-only role management
 - Remediation: Add role-based authorization check
@@ -47,15 +55,19 @@ Overall security posture: **Good**
 ...
 
 ### 5. Recommendations (Prioritized)
+
 **HIGH PRIORITY:**
+
 - [ ] Fix BOLA vulnerabilities on `/roles`, `/permissions`, `/users`
 - [ ] Implement proper authorization middleware
 
 **MEDIUM PRIORITY:**
+
 - [ ] Review false positives
 - [ ] Add rate limiting
 
 ### 7. Next Steps
+
 1. **Immediate (24 hours):** Block employee access to admin endpoints
 2. **Short-term (1 week):** Implement RBAC middleware
 3. **Long-term (1 month):** Add monitoring & alerting
@@ -66,6 +78,7 @@ Overall security posture: **Good**
 ## How It Works
 
 ### **1. Test Execution**
+
 ```python
 # orchestrator.py (line 1560)
 llm_summary = self._generate_summary_recommendations(
@@ -74,12 +87,15 @@ llm_summary = self._generate_summary_recommendations(
 ```
 
 ### **2. LLM Prompt** (`prompts/summarizer.md`)
+
 Template dengan placeholders:
+
 - `{total_tests}`, `{accuracy}`, `{precision}`, etc.
 - `{vulnerabilities_list}` - detailed FN list
 - `{fp}`, `{tn}`, `{tp}` - confusion matrix
 
 ### **3. LLM Processing**
+
 ```python
 # Google Gemini (default)
 model = genai.GenerativeModel("gemini-2.0-flash-exp")
@@ -94,6 +110,7 @@ response = client.chat.completions.create(
 ```
 
 ### **4. Output**
+
 - **Console:** Summary printed setelah test selesai
 - **JSON:** `llm_summary` field dalam report
 - **Markdown:** Formatted summary di `.md` file
@@ -103,6 +120,7 @@ response = client.chat.completions.create(
 ## Example Output
 
 ### Console Output
+
 ```
 ================================================================================
 🤖 AI SECURITY ASSESSMENT SUMMARY
@@ -110,7 +128,7 @@ response = client.chat.completions.create(
 
 ## Executive Summary
 
-The API security posture is **Good** overall with 88.9% accuracy. However, 
+The API security posture is **Good** overall with 88.9% accuracy. However,
 6 critical vulnerabilities were detected related to privilege escalation (BOLA).
 Immediate action required to fix high-severity issues.
 
@@ -170,7 +188,9 @@ Immediate action required to fix high-severity issues.
 ## Configuration
 
 ### Enable/Disable Summary
+
 Edit `config/agent.yaml`:
+
 ```yaml
 # Default: enabled
 llm_summary_enabled: true
@@ -180,9 +200,11 @@ llm_summary_enabled: false
 ```
 
 ### Customize Prompt
+
 Edit `prompts/summarizer.md` untuk mengubah format atau style summary.
 
 ### Change LLM Model
+
 ```yaml
 # config/agent.yaml
 provider: google_genai
@@ -199,16 +221,19 @@ model: gpt-4                 # Best quality, slower, expensive
 ## Benefits
 
 ### **For Developers:**
+
 - 🎯 **Prioritized fixes** - HIGH/MEDIUM/LOW severity
 - 💡 **Specific recommendations** - Tidak cuma "fix vulnerability"
 - 📋 **Checklist format** - Copy-paste ke JIRA/GitHub Issues
 
 ### **For Security Teams:**
+
 - 📊 **Executive summary** - Quick overview untuk management
 - ✅ **OWASP compliance** - Check alignment dengan industry standards
 - 🚨 **Risk assessment** - Understand real-world impact
 
 ### **For Auditors:**
+
 - 📄 **Professional reports** - Formatted Markdown + JSON
 - 🔍 **Detailed analysis** - Confusion matrix interpretation
 - 📈 **Metrics explanation** - Why FP rate is acceptable, etc.
@@ -218,16 +243,19 @@ model: gpt-4                 # Best quality, slower, expensive
 ## Technical Details
 
 ### File Changes:
+
 1. ✅ `prompts/summarizer.md` - LLM prompt template
 2. ✅ `core/orchestrator.py` - `_generate_summary_recommendations()` method
 3. ✅ `core/reporters.py` - Updated to save `llm_summary` field
 4. ✅ Console output - Print summary after test completion
 
 ### Dependencies:
+
 - Google Gemini API (via `google-generativeai`)
 - OR OpenAI API (via `openai` package)
 
 ### Performance:
+
 - **Additional time:** ~5-10 seconds for LLM call
 - **Cost:** ~$0.001 per run (Gemini Flash)
 - **Token usage:** ~1500 input + 1000 output tokens
@@ -237,6 +265,7 @@ model: gpt-4                 # Best quality, slower, expensive
 ## Roadmap
 
 ### Future Enhancements:
+
 - [ ] Multi-language summaries (Indonesian/English)
 - [ ] Export to PDF format
 - [ ] Integration with Slack/Teams notifications

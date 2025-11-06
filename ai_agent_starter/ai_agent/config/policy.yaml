@@ -12,10 +12,10 @@ rbac_rules:
       - GET:/employee/update-histories/{id_change_request}
 
       #manage_consent
-      - GET:/employee/consents/active 
-      - GET:/employee/consents/status 
-      - POST:/employee/consents 
-      - PUT:/employee/consents/{id_consent} 
+      - GET:/employee/consents/active
+      - GET:/employee/consents/status
+      - POST:/employee/consents
+      - PUT:/employee/consents/{id_consent}
       - POST:/employee/consents/approve
       - GET:/employee/consents/list
 
@@ -39,7 +39,7 @@ rbac_rules:
     #   - POST:/employee/change-request
     #   - PUT:/employee/change-request/{id_change_request}
     #   - DELETE:/employee/change-request/{id_change_request}
-      
+
     #   #export_pdf
     #   - POST:/employee/pdf-export
 
@@ -53,7 +53,7 @@ rbac_rules:
     #   - POST:/employee/attachments/change-request/{id_change_request}
 
     critical_deny:
-      - DELETE:/users/{user_id}   
+      - DELETE:/users/{user_id}
 
   Employee:
     permissions:
@@ -83,13 +83,13 @@ rbac_rules:
       - POST:/employee/change-request
       - PUT:/employee/change-request/{id_change_request}
       - DELETE:/employee/change-request/{id_change_request}
-      
+
     # denied_endpoints:
     #   #manage_consent
-    #   - GET:/employee/consents/active 
-    #   - GET:/employee/consents/status 
-    #   - POST:/employee/consents 
-    #   - PUT:/employee/consents/{id_consent} 
+    #   - GET:/employee/consents/active
+    #   - GET:/employee/consents/status
+    #   - POST:/employee/consents
+    #   - PUT:/employee/consents/{id_consent}
     #   - POST:/employee/consents/approve
     #   - GET:/employee/consents/list
 

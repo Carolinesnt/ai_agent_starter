@@ -13,13 +13,13 @@ Setelah melakukan **comprehensive code review** terhadap seluruh codebase BYE BA
 
 ### ✅ **Overall Assessment: EXCELLENT**
 
-| Kategori | Rating | Status |
-|----------|--------|--------|
-| **Code Quality** | ⭐⭐⭐⭐⭐ | Best Practice |
-| **Architecture** | ⭐⭐⭐⭐⭐ | Clean & Modular |
-| **Security** | ⭐⭐⭐⭐⭐ | Enterprise Grade |
-| **Documentation** | ⭐⭐⭐⭐☆ | Comprehensive |
-| **Testing** | ⭐⭐⭐⭐⭐ | 100% Coverage |
+| Kategori            | Rating     | Status              |
+| ------------------- | ---------- | ------------------- |
+| **Code Quality**    | ⭐⭐⭐⭐⭐ | Best Practice       |
+| **Architecture**    | ⭐⭐⭐⭐⭐ | Clean & Modular     |
+| **Security**        | ⭐⭐⭐⭐⭐ | Enterprise Grade    |
+| **Documentation**   | ⭐⭐⭐⭐☆  | Comprehensive       |
+| **Testing**         | ⭐⭐⭐⭐⭐ | 100% Coverage       |
 | **Maintainability** | ⭐⭐⭐⭐⭐ | Highly Maintainable |
 
 ---
@@ -39,6 +39,7 @@ ai_agent/
 ```
 
 **Why This is Best Practice:**
+
 - **Modular design** → Easy to extend with new attack vectors (e.g., CSRF, XSS)
 - **Clear boundaries** → Each module has single responsibility
 - **Configuration-driven** → No hardcoded values, easy to adapt to different APIs
@@ -59,6 +60,7 @@ class Memory:
 ```
 
 **Why This is Best Practice:**
+
 - **Immutable test cases** → Reproducible tests
 - **Resource tracking** → Safe CRUD flows with cleanup
 - **Role-based context** → Each role has isolated test state
@@ -77,6 +79,7 @@ def _discover_ids(http, auth, openapi, memory, roles, max_per_role=10):
 ```
 
 **Why This is Best Practice:**
+
 - **No hardcoded IDs** → Works with any API state
 - **Automatic adaptation** → Discovers IDs at runtime
 - **Smart placeholder mapping** → Handles multiple ID formats (`id_role`, `role_id`, `roleId`)
@@ -87,12 +90,12 @@ def _discover_ids(http, auth, openapi, memory, roles, max_per_role=10):
 
 ### **1. Comprehensive BAC Detection**
 
-| Attack Type | Detection | Implementation |
-|------------|-----------|----------------|
-| **IDOR** (Horizontal) | ✅ | Tests same-privilege access to other users' resources |
-| **BOLA** (Vertical) | ✅ | Tests privilege escalation (Employee → Admin endpoints) |
-| **Authentication Bypass** | ✅ | Tests unauthenticated access |
-| **CRUD Safety** | ✅ | Validates create-update-delete flows with `adjustment.txt` rules |
+| Attack Type               | Detection | Implementation                                                   |
+| ------------------------- | --------- | ---------------------------------------------------------------- |
+| **IDOR** (Horizontal)     | ✅        | Tests same-privilege access to other users' resources            |
+| **BOLA** (Vertical)       | ✅        | Tests privilege escalation (Employee → Admin endpoints)          |
+| **Authentication Bypass** | ✅        | Tests unauthenticated access                                     |
+| **CRUD Safety**           | ✅        | Validates create-update-delete flows with `adjustment.txt` rules |
 
 **File:** `core/tools_http.py` (lines 30-60)
 
@@ -103,13 +106,14 @@ def _artifact_path(self, name, role, bac_type, target_label):
     artifacts/
       {role}/
         IDOR/      # Horizontal attacks
-        BOLA/      # Vertical attacks  
+        BOLA/      # Vertical attacks
         BASELINE/  # Expected operations
         AUTH/      # Auth tests
     """
 ```
 
 **Why This is Best Practice:**
+
 - **Attack taxonomy** → Clear categorization of security tests
 - **Forensic-ready** → Each test saves full request/response artifacts
 - **Audit trail** → Timestamped artifacts for compliance
@@ -131,6 +135,7 @@ def _load_status_rules():
 ```
 
 **Why This is Best Practice:**
+
 - **Context-aware evaluation** → Distinguishes BAC from validation/system errors
 - **Customizable rules** → Adapt to API-specific semantics via `rule.txt`
 - **False positive rate: 4.0%** → Industry-leading accuracy
@@ -150,6 +155,7 @@ def _load_adjustments():
 ```
 
 **Why This is Best Practice:**
+
 - **Production-safe testing** → Never deletes critical resources (e.g., admin roles)
 - **Natural language rules** → Non-technical users can define constraints
 - **Multi-language support** → Indonesian/English rule parsing
@@ -184,11 +190,13 @@ def confusion_counts(results, policy):
 ```
 
 **Why This is Best Practice:**
+
 - **Standard ML metrics** → Precision, Recall, F1, Accuracy
 - **Security-focused** → FN (missed vulnerabilities) tracked separately
 - **Best practice alignment** → 404s not counted as BAC findings (per OWASP)
 
 **Latest Results (report-20251104-163852.json):**
+
 ```
 Accuracy:  88.9% ✅
 FP Rate:   4.0%  ✅ (only 3/75 false alarms)
@@ -212,6 +220,7 @@ def time_to_detect(results, policy, start_ts):
 ```
 
 **Why This is Best Practice:**
+
 - **Performance metric** → Measures agent efficiency
 - **Optimization target** → Prioritize high-risk endpoints first
 - **Real-world impact** → Faster detection = faster remediation
@@ -269,6 +278,7 @@ def normalize_path(path: str) -> str:
 ```
 
 **Why This is Best Practice:**
+
 - **Handles edge cases** → Empty paths, missing slashes, double slashes
 - **Consistent format** → All paths start with `/`
 
@@ -290,6 +300,7 @@ def load_policy(config_dir: str) -> dict:
 ```
 
 **Why This is Best Practice:**
+
 - **Format-agnostic** → Supports both YAML and JSON
 - **Developer-friendly** → YAML preferred for comments & readability
 
@@ -300,6 +311,7 @@ def load_policy(config_dir: str) -> dict:
 **File:** `byebac.py` (590 lines)
 
 ### **Features:**
+
 1. ✅ **ASCII Banner** → Professional branding
 2. ✅ **7 Commands** → `/help`, `/information`, `/check`, `/runagent`, `/status`, `/report`, `/config`
 3. ✅ **Interactive Menus** → `/information` has 6 sub-options with back navigation
@@ -308,6 +320,7 @@ def load_policy(config_dir: str) -> dict:
 6. ✅ **Setup Scripts** → `QUICK_SETUP.ps1` (session), `SETUP_CLI.ps1` (permanent)
 
 ### **User Experience:**
+
 ```powershell
 PS> byebac /help
     ╔══════════════════════════════════════════════════════════════╗
@@ -322,6 +335,7 @@ PS> byebac /help
 ```
 
 **Why This is Best Practice:**
+
 - **Low barrier to entry** → Non-technical users can run security tests
 - **Self-documenting** → `/information` provides detailed command explanations
 - **Production-ready** → Can be integrated into CI/CD pipelines
@@ -348,6 +362,7 @@ PS> byebac /help
 ```
 
 **Why This is Best Practice:**
+
 - **Machine-readable** → Easy integration with SIEM/vulnerability management tools
 - **Human-readable** → Markdown summary auto-generated alongside JSON
 - **Timestamped** → Tracks progress across test runs
@@ -373,6 +388,7 @@ runs/artifacts/
 ```
 
 **Why This is Best Practice:**
+
 - **Forensic analysis** → Each test has full request/response saved
 - **Reproducibility** → Can replay tests from artifacts
 - **Compliance** → Audit trail for security assessments
@@ -400,6 +416,7 @@ rbac_rules:
 ```
 
 **Why This is Best Practice:**
+
 - **Version-controlled** → Policy changes tracked in Git
 - **Human-readable** → Non-developers can review/edit
 - **Comments supported** → Inline documentation
@@ -427,6 +444,7 @@ rbac_rules:
 ```
 
 **Why This is Best Practice:**
+
 - **Contract-first testing** → Tests match API specification
 - **Auto-discovery** → Endpoints extracted from OpenAPI spec
 - **Spec validation** → Ensures API behavior matches documentation
@@ -442,10 +460,11 @@ rbac_rules:
 ```yaml
 provider: google_genai
 model: gemini-2.0-flash-exp
-temperature: 0.1  # Low temperature for deterministic security testing
+temperature: 0.1 # Low temperature for deterministic security testing
 ```
 
 **Why This is Best Practice:**
+
 - **Deterministic results** → Low temperature reduces randomness
 - **Cost-effective** → Gemini Flash is fast & cheap
 - **Reproducible** → Same policy + API state = same results
@@ -460,17 +479,20 @@ temperature: 0.1  # Low temperature for deterministic security testing
 You are a security tester specializing in Broken Access Control (BAC) detection.
 
 Given:
+
 - Policy: {policy}
 - Endpoint: {method} {path}
 - Role: {role}
 
 Determine:
+
 1. Expected status code (200, 401, 403, 404)
 2. BAC type (IDOR, BOLA, baseline)
 3. Self-access semantics (own resource vs. other user's resource)
 ```
 
 **Why This is Best Practice:**
+
 - **Clear instructions** → LLM understands security context
 - **Structured output** → Consistent test case generation
 - **Domain expertise** → Prompts encode OWASP best practices
@@ -482,6 +504,7 @@ Determine:
 ### ✅ **Issue #1: TP Always 0 (FIXED)**
 
 **Problem:**
+
 ```python
 # OLD CODE (line 148):
 "TN": c.get("TN",0) + c.get("TP_ALLOW",0),  # TP_ALLOW merged into TN
@@ -490,12 +513,14 @@ Determine:
 **Root Cause:** Allowed endpoints returning 200 were classified as `TP_ALLOW` but merged into `TN` in confusion matrix.
 
 **Fix:**
+
 ```python
 # NEW CODE (line 146):
 "TP": c.get("TP",0) + c.get("TP_ALLOW",0),  # TP_ALLOW now counted as TP
 ```
 
 **Impact:**
+
 - **Before:** Precision=0%, Recall=0% (misleading)
 - **After:** Precision=88.5%, Recall=79.3% (accurate)
 
@@ -515,36 +540,36 @@ Determine:
 
 ### **1. OWASP Alignment**
 
-| OWASP Guideline | Implementation |
-|-----------------|----------------|
-| **A01:2021 - Broken Access Control** | ✅ Primary focus |
-| **404 is not a BAC finding** | ✅ `NF` category in confusion matrix |
-| **5xx errors excluded** | ✅ `ERR` category, not counted as vulnerabilities |
-| **IDOR detection** | ✅ Horizontal BAC tests |
-| **BOLA detection** | ✅ Vertical BAC tests |
+| OWASP Guideline                      | Implementation                                    |
+| ------------------------------------ | ------------------------------------------------- |
+| **A01:2021 - Broken Access Control** | ✅ Primary focus                                  |
+| **404 is not a BAC finding**         | ✅ `NF` category in confusion matrix              |
+| **5xx errors excluded**              | ✅ `ERR` category, not counted as vulnerabilities |
+| **IDOR detection**                   | ✅ Horizontal BAC tests                           |
+| **BOLA detection**                   | ✅ Vertical BAC tests                             |
 
 ---
 
 ### **2. Testing Best Practices**
 
-| Practice | Implementation |
-|----------|----------------|
+| Practice                      | Implementation                         |
+| ----------------------------- | -------------------------------------- |
 | **Positive & negative tests** | ✅ BASELINE (allow) + BOLA/IDOR (deny) |
-| **Reproducibility** | ✅ Seeded IDs, timestamped artifacts |
-| **Coverage metrics** | ✅ 100% role×endpoint pairs tested |
-| **Non-destructive testing** | ✅ CRUD guards in `adjustment.txt` |
+| **Reproducibility**           | ✅ Seeded IDs, timestamped artifacts   |
+| **Coverage metrics**          | ✅ 100% role×endpoint pairs tested     |
+| **Non-destructive testing**   | ✅ CRUD guards in `adjustment.txt`     |
 
 ---
 
 ### **3. Code Quality Standards**
 
-| Standard | Implementation |
-|----------|----------------|
-| **Type hints** | ✅ All functions annotated |
-| **Docstrings** | ✅ Complex functions documented |
-| **Error handling** | ✅ Try-except with fallbacks |
-| **DRY principle** | ✅ Reusable utilities in `utils.py` |
-| **Single responsibility** | ✅ Each module has clear purpose |
+| Standard                  | Implementation                      |
+| ------------------------- | ----------------------------------- |
+| **Type hints**            | ✅ All functions annotated          |
+| **Docstrings**            | ✅ Complex functions documented     |
+| **Error handling**        | ✅ Try-except with fallbacks        |
+| **DRY principle**         | ✅ Reusable utilities in `utils.py` |
+| **Single responsibility** | ✅ Each module has clear purpose    |
 
 ---
 
@@ -552,19 +577,20 @@ Determine:
 
 ### **Latest Test Run (report-20251104-163852.json)**
 
-| Metric | Value | Target | Status |
-|--------|-------|--------|--------|
-| **Total Tests** | 96 | >90 | ✅ |
-| **Coverage** | 100% | >95% | ✅ |
-| **Accuracy** | 88.9% | >85% | ✅ |
-| **False Positive Rate** | 4.0% | <10% | ✅ |
-| **Precision** | 88.5% | >80% | ✅ |
-| **Recall** | 79.3% | >75% | ✅ |
-| **F1 Score** | 83.6% | >75% | ✅ |
-| **Time to First Detect** | 73.8s | <120s | ✅ |
-| **Vulnerabilities Found** | 6 | >0 | ✅ |
+| Metric                    | Value | Target | Status |
+| ------------------------- | ----- | ------ | ------ |
+| **Total Tests**           | 96    | >90    | ✅     |
+| **Coverage**              | 100%  | >95%   | ✅     |
+| **Accuracy**              | 88.9% | >85%   | ✅     |
+| **False Positive Rate**   | 4.0%  | <10%   | ✅     |
+| **Precision**             | 88.5% | >80%   | ✅     |
+| **Recall**                | 79.3% | >75%   | ✅     |
+| **F1 Score**              | 83.6% | >75%   | ✅     |
+| **Time to First Detect**  | 73.8s | <120s  | ✅     |
+| **Vulnerabilities Found** | 6     | >0     | ✅     |
 
 **Interpretation:**
+
 - **88.9% Accuracy** → Agent is correct 9 out of 10 times
 - **4.0% FP Rate** → Only 3 false alarms out of 75 deny tests
 - **6 Vulnerabilities** → Real BAC issues detected and documented
@@ -575,6 +601,7 @@ Determine:
 ## 🔮 Future Enhancements (Optional)
 
 ### **1. Parallel Test Execution**
+
 ```python
 # Current: Sequential execution (~254s for 96 tests)
 # Future: Use asyncio/threading for 3-5x speedup
@@ -583,12 +610,14 @@ async def run_tests_parallel(tests): ...
 ```
 
 ### **2. Machine Learning for Prioritization**
+
 ```python
 # Train model on historical results to predict high-risk endpoints
 # Focus testing budget on endpoints most likely to have BAC issues
 ```
 
 ### **3. Integration with CI/CD**
+
 ```yaml
 # .github/workflows/security-test.yml
 - name: Run BAC Tests
@@ -623,6 +652,7 @@ async def run_tests_parallel(tests): ...
 **BYE BAC AI Agent** adalah **production-ready security testing tool** dengan kualitas kode **enterprise-grade**. Implementasi mengikuti **industry best practices** dari OWASP, Google, dan Microsoft untuk security testing automation.
 
 ### **Key Strengths:**
+
 1. ✅ **Accurate detection** (88.9% accuracy, 4% FP rate)
 2. ✅ **Comprehensive coverage** (100% role×endpoint pairs)
 3. ✅ **Clean architecture** (modular, extensible, testable)
@@ -631,9 +661,11 @@ async def run_tests_parallel(tests): ...
 6. ✅ **OWASP-aligned** (404 not a finding, 5xx excluded, IDOR/BOLA detection)
 
 ### **Recommendation:**
+
 **SHIP IT!** 🚀
 
 Code sudah siap untuk:
+
 - Production deployment
 - Integration dengan CI/CD pipeline
 - Academic research publication (thesis)

@@ -299,6 +299,369 @@
         }
       }
     },
+    "/employee/change-request": {
+      "get": {
+        "summary": "List Change Requests",
+        "description": "Retrieve list of change requests for the authenticated employee. Includes aggregate status summary and a flat list of requests.\n\n**Authentication:** Required (JWT token from ESS.USER login)\n**Rate Limiting:** 100 requests per minute per user",
+        "tags": [
+          "Change Request"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Number of records to return",
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "maximum": 100
+            },
+            "example": 10
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Number of records to skip",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            },
+            "example": 0
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Change requests retrieved successfully",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": true,
+                  "message": "Found 8 change requests for employee 3464 (DRAFT: 0, WAITING: 8, REVISION: 0, APPROVED: 0)",
+                  "summary": {
+                    "draft": 0,
+                    "waiting_approval": 8,
+                    "need_revision": 0,
+                    "approved": 0,
+                    "total": 8
+                  },
+                  "data": [
+                    {
+                      "id_change_req": 1521,
+                      "code": "REQ-150925-MDR-363",
+                      "request_type": "MDR",
+                      "request_type_label": "Medical Record",
+                      "status": "2",
+                      "status_label": "Waiting Approval",
+                      "name_approver": "BURHANUDIN MUCHTAR",
+                      "created_date": "15-09-2025 14:23",
+                      "updated_date": null
+                    },
+                    {
+                      "id_change_req": 1520,
+                      "code": "REQ-150925-SSI-362",
+                      "request_type": "SSI",
+                      "request_type_label": "Social Security & Insurance",
+                      "status": "2",
+                      "status_label": "Waiting Approval",
+                      "name_approver": "BURHANUDIN MUCHTAR",
+                      "created_date": "15-09-2025 14:22",
+                      "updated_date": null
+                    },
+                    {
+                      "id_change_req": 1518,
+                      "code": "REQ-150925-EDC-361",
+                      "request_type": "EDC",
+                      "request_type_label": "Education",
+                      "status": "2",
+                      "status_label": "Waiting Approval",
+                      "name_approver": "MOCHAMAD FAISHOL TRI AFANDI",
+                      "created_date": "15-09-2025 14:21",
+                      "updated_date": "15-09-2025 14:22"
+                    },
+                    {
+                      "id_change_req": 1517,
+                      "code": "REQ-150925-FMY-360",
+                      "request_type": "FMY",
+                      "request_type_label": "Family",
+                      "status": "2",
+                      "status_label": "Waiting Approval",
+                      "name_approver": "MOCHAMAD FAISHOL TRI AFANDI",
+                      "created_date": "15-09-2025 14:20",
+                      "updated_date": "15-09-2025 14:21"
+                    },
+                    {
+                      "id_change_req": 1516,
+                      "code": "REQ-150925-PYR-359",
+                      "request_type": "PYR",
+                      "request_type_label": "Payroll Account",
+                      "status": "2",
+                      "status_label": "Waiting Approval",
+                      "name_approver": "MARDI JUMARI",
+                      "created_date": "15-09-2025 14:19",
+                      "updated_date": null
+                    },
+                    {
+                      "id_change_req": 1515,
+                      "code": "REQ-150925-ADR-358",
+                      "request_type": "ADR",
+                      "request_type_label": "Address",
+                      "status": "2",
+                      "status_label": "Waiting Approval",
+                      "name_approver": "MARDI JUMARI",
+                      "created_date": "15-09-2025 14:18",
+                      "updated_date": "15-09-2025 14:19"
+                    },
+                    {
+                      "id_change_req": 1514,
+                      "code": "REQ-150925-EMC-357",
+                      "request_type": "EMC",
+                      "request_type_label": "Emergency Contact",
+                      "status": "2",
+                      "status_label": "Waiting Approval",
+                      "name_approver": "OKTAVIAN AJI TYAS AZIS",
+                      "created_date": "15-09-2025 14:16",
+                      "updated_date": "15-09-2025 14:17"
+                    },
+                    {
+                      "id_change_req": 1510,
+                      "code": "REQ-150925-BSC-355",
+                      "request_type": "BSC",
+                      "request_type_label": "Basic Information",
+                      "status": "2",
+                      "status_label": "Waiting Approval",
+                      "name_approver": "OKTAVIAN AJI TYAS AZIS",
+                      "created_date": "15-09-2025 14:02",
+                      "updated_date": null
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Change Request",
+        "description": "Create a new change request or save as draft.\nSupports request types: BSC, ADR, EMC, PYR, FMY, EDC, SSI, MDR.\n\nFiles are **not** attached here. If needed, upload files separately via: **POST /employee/change-requests/{id_change_req}/attachments**\n\n**Authentication:** Required (JWT token from ESS_USER login)\n**Rate Limiting:** 10 requests per minute per user\n\nUntuk endpoint multiple dapat post data single dan multiple, Untuk endpoint multiple dapat update data single dan multiple, Untuk endpoint single dapat post data single only, Untuk endpoint single dapat update (PUT) data single only.\n\n**Validasi setiap field akan aktif jika submit = true, selama submit = false (save as draft) maka validasi di non aktifkan**",
+        "tags": [
+          "Change Request"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "request_type",
+                  "nore_employee",
+                  "consent",
+                  "submit",
+                  "new_data"
+                ],
+                "properties": {
+                  "request_type": {
+                    "type": "string",
+                    "enum": [
+                      "BSC",
+                      "ADR",
+                      "EMC",
+                      "PYR",
+                      "FMY",
+                      "EDC",
+                      "SSI",
+                      "MDR"
+                    ],
+                    "example": "ADR"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "example": "Pindah alamat domisili baru"
+                  },
+                  "consent": {
+                    "type": "boolean",
+                    "example": true
+                  },
+                  "submit": {
+                    "type": "boolean",
+                    "description": "true ⇒ submit (Waiting Approval), false ⇒ Draft",
+                    "example": true
+                  },
+                  "document_type": {
+                    "type": "string",
+                    "nullable": true,
+                    "description": "Optional document classification for validation; attachments are uploaded later.",
+                    "example": "2"
+                  },
+                  "new_data": {
+                    "type": "object",
+                    "description": "Structured JSON for the change request",
+                    "required": [
+                      "action",
+                      "data"
+                    ],
+                    "properties": {
+                      "action": {
+                        "type": "string",
+                        "enum": [
+                          "insert",
+                          "update",
+                          "delete"
+                        ],
+                        "example": "update"
+                      },
+                      "data": {
+                        "type": "object",
+                        "description": "Free-form per request_type. Examples: ADR: { detail_domicile, province_domicile, city_domicile, postal_code_domicile }"
+                      }
+                    }
+                  }
+                }
+              },
+              "examples": {
+                "fmy_update": {
+                  "summary": "FMY - Update",
+                  "description": "Jika update memerlukan `id_family` dan multiple data terdapat field `status`.",
+                  "value": {
+                    "request_type": "FMY",
+                    "reason": "Perubahan data keluarga",
+                    "consent": true,
+                    "new_data": {
+                      "action": "update",
+                      "data": [
+                        {
+                          "id_family": 10,
+                          "name": "Budi Santoso",
+                          "gender_id": "1",
+                          "birth_place": "Bandung",
+                          "birth_date": "1975-03-10",
+                          "relation_id": "2",
+                          "address": "Jl. Kenanga 5, Bandung",
+                          "occupation": "Wiraswasta",
+                          "martial_status_id": "1",
+                          "status": 1
+                        },
+                        {
+                          "id_family": 19,
+                          "name": "Budi Santoso",
+                          "gender_id": "1",
+                          "birth_place": "Bandung",
+                          "birth_date": "1975-03-10",
+                          "relation_id": "2",
+                          "address": "Jl. Kenanga 5, Bandung",
+                          "occupation": "Wiraswasta",
+                          "martial_status_id": "1",
+                          "status": 0
+                        }
+                      ]
+                    },
+                    "submit": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Change request created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "message",
+                    "data"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Change request created successfully as Waiting Approval"
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "id_change_request",
+                        "request_code",
+                        "status",
+                        "status_label"
+                      ],
+                      "properties": {
+                        "id_change_request": {
+                          "type": "integer",
+                          "example": 91
+                        },
+                        "request_code": {
+                          "type": "string",
+                          "example": "REQ-200825-PYR-001"
+                        },
+                        "request_type": {
+                          "type": "string",
+                          "example": "PYR"
+                        },
+                        "status": {
+                          "type": "string",
+                          "description": "Status code as stringified numeric (\"1\",\"2\",\"3\",\"4\")",
+                          "enum": [
+                            "1",
+                            "2",
+                            "3",
+                            "4"
+                          ],
+                          "example": "2"
+                        },
+                        "status_label": {
+                          "type": "string",
+                          "enum": [
+                            "Draft",
+                            "Waiting Approval",
+                            "Need Revision",
+                            "Approved"
+                          ],
+                          "example": "Waiting Approval"
+                        },
+                        "created_date": {
+                          "type": "string",
+                          "nullable": true,
+                          "example": "20-08-2025 16:30"
+                        },
+                        "updated_date": {
+                          "type": "string",
+                          "nullable": true,
+                          "example": null
+                        },
+                        "next_step": {
+                          "type": "string",
+                          "nullable": true,
+                          "example": "Upload attachments using the attachment API if needed"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/employee/change-request/{id_change_req}": {
       "get": {
         "summary": "Get Change Request Detail",

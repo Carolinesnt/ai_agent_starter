@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Tuple
 from collections import Counter
 from .memory import TestCase, Result
+from .utils import has_id_param
 import os
 from pathlib import Path
 
@@ -98,14 +99,18 @@ def expected_status(policy, tc: TestCase) -> Dict[str, Any]:
     if "rbac_rules" in policy:
         key = f"{tc.method.upper()}:{tc.path}"
         allowed, critical_deny = _policy_allowed_endpoints(policy, tc.role)
+        # Fetch role permissions (if any) to infer admin-wide access
+        role_rules = (policy.get("rbac_rules", {}) or {}).get(tc.role) or {}
+        perms = set(role_rules.get("permissions", []) or [])
         if key in critical_deny:
             return {"status_in":[401,403,404], "status_not_in":[200]}
         if key in allowed:
-            if tc.self_access:
+            # If endpoint is not resource-owner specific (no {id}-like), allow for both self/other
+            # Or if role has rbac_admin permission, treat access as allowed regardless of self/other
+            if (not has_id_param(tc.path)) or ("rbac_admin" in perms):
                 return {"status_in":[200], "status_not_in":[401,403]}
-            else:
-                # other users' resource: deny acceptable via 401/403/404
-                return {"status_in":[401,403,404], "status_not_in":[200]}
+            # Otherwise, self allowed; other should be denied (IDOR)
+            return {"status_in":[200], "status_not_in":[401,403]} if tc.self_access else {"status_in":[401,403,404], "status_not_in":[200]}
     # default: unknown
     return {"status_in":[200,401,403], "status_not_in":[]}
 
@@ -116,8 +121,13 @@ def classify(exp: Dict[str, Any], actual_status: int) -> str:
     # 0 -> skipped (e.g., protected delete not executed)
     if int(actual_status) == 0:
         return "SKIP"
-    # Best-practice: 404 is not a BAC finding; mark separately (from rules file)
+    # 404 handling: if 404 is part of expected statuses (deny path), treat as TN; else mark separately as NOT_FOUND
     if int(actual_status) in _STATUS_RULES.get("not_found", set([404])):
+        try:
+            if actual_status in (exp or {}).get("status_in", []):
+                return "TN"
+        except Exception:
+            pass
         return "NOT_FOUND"
     # Local/project rules: treat certain 4xx as non-BAC finding (validation/conflict)
     if int(actual_status) in _STATUS_RULES.get("non_finding", set([400,409])):

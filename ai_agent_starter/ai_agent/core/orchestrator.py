@@ -98,12 +98,13 @@ def _endpoint_priority_score(method: str, path: str, openapi: dict) -> int:
         score += 2
     return score
 
-def plan_tests(openapi: dict, roles: list) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+def plan_tests(openapi: dict, roles: list, max_endpoints: int = TOP_N_ENDPOINTS, include_all_endpoints: bool = False) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     endpoints = extract_paths_from_openapi(openapi)
-    # Prioritaskan endpoint yang punya {id}
-    prioritized = [e for e in endpoints if has_id_param(e["path"])]
-    if not prioritized:
+    # Pilih semua endpoint jika diminta; jika tidak, prioritaskan yang punya {id}
+    if include_all_endpoints:
         prioritized = endpoints
+    else:
+        prioritized = [e for e in endpoints if has_id_param(e["path"])] or endpoints
     # Urutkan dengan heuristik prioritas dan batasi ke 56 endpoint unik
     prioritized_sorted = sorted(prioritized, key=lambda e: _endpoint_priority_score(e["method"], e["path"], openapi), reverse=True)
     seen = set()
@@ -114,7 +115,7 @@ def plan_tests(openapi: dict, roles: list) -> Tuple[List[Dict[str, Any]], List[D
             continue
         seen.add(key)
         top_eps.append({"method": key[0], "path": key[1]})
-        if len(top_eps) >= TOP_N_ENDPOINTS:
+        if int(max_endpoints) > 0 and len(top_eps) >= int(max_endpoints):
             break
     # Buat pasangan role×endpoint (self & other)
     plan = []
@@ -127,7 +128,7 @@ def plan_tests(openapi: dict, roles: list) -> Tuple[List[Dict[str, Any]], List[D
 def _extract_placeholders(path: str) -> List[str]:
     return re.findall(r"\{([^}/]+)\}", path or "")
 
-def _discover_ids(http: HttpClient, auth: AuthManager, openapi: dict, memory: Memory, roles: List[str], max_per_role: int = 10):
+def _discover_ids(http: HttpClient, auth: AuthManager, openapi: dict, memory: Memory, roles: List[str], max_per_role: int = 10, extended: bool = False):
     paths = openapi.get('paths', {}) if isinstance(openapi, dict) else {}
     # Candidates: GET endpoints ending with a single placeholder, e.g., /resource/{id_something}
     candidates = []
@@ -230,6 +231,81 @@ def _discover_ids(http: HttpClient, auth: AuthManager, openapi: dict, memory: Me
                     stored += 1
             except Exception:
                 continue
+
+        # Extended discovery: scan all GET collection endpoints (no placeholders)
+        # to learn generic ids and map them to resource tokens.
+        if extended and stored < max_per_role:
+            try:
+                paths = openapi.get('paths', {}) if isinstance(openapi, dict) else {}
+                # Collection endpoints: GET and no {...} placeholder
+                coll = []
+                for p, methods in paths.items():
+                    get_meta = (methods or {}).get('get') or (methods or {}).get('GET')
+                    if not get_meta:
+                        continue
+                    if re.search(r"\{[^}/]+\}", str(p) or ''):
+                        continue
+                    coll.append(normalize_path(p))
+                # De-dup and cap scans to avoid explosion
+                seen_paths = set()
+                for lp in coll:
+                    if stored >= max_per_role:
+                        break
+                    if lp in seen_paths:
+                        continue
+                    seen_paths.add(lp)
+                    try:
+                        resp = http.request('GET', lp, token=token)
+                        body = resp.get('body', {})
+                        item = _first_item(body)
+                        if not item:
+                            continue
+                        # Derive resource token from last segment of list path
+                        try:
+                            seg = lp.strip('/').split('/')[-1]
+                            # singularize naive: roles -> role, permissions -> permission
+                            res_token = re.sub(r"s$", "", seg)
+                        except Exception:
+                            res_token = 'resource'
+                        # Scan id-like in item
+                        k, rid = _pick_id_key(item)
+                        if rid is not None:
+                            # Store under derived tokens and discovered key base
+                            # 1) key-derived base
+                            base = k
+                            if base.endswith('_id'):
+                                base = base[:-3]
+                            if base.startswith('id_'):
+                                base = base[3:]
+                            for b in {base, res_token}:
+                                if b:
+                                    memory.store_resource_id(role, b, rid)
+                            stored += 1
+                        else:
+                            # Fallback: scan multiple candidates from body
+                            cands = {}
+                            try:
+                                if isinstance(body, dict):
+                                    cands = {k:int(v) for k,v in item.items() if isinstance(k, str) and 'id' in k.lower()}
+                            except Exception:
+                                cands = {}
+                            for ck, cv in cands.items():
+                                if stored >= max_per_role:
+                                    break
+                                base = ck
+                                if base.endswith('_id'):
+                                    base = base[:-3]
+                                if base.startswith('id_'):
+                                    base = base[3:]
+                                for b in {base, res_token}:
+                                    if b:
+                                        memory.store_resource_id(role, b, cv)
+                                stored += 1
+                    except Exception:
+                        continue
+            except Exception:
+                # Ignore extended discovery failures to keep main flow robust
+                pass
 
 def _replace_id_placeholders(path: str, target_id: int) -> str:
     def repl(m):
@@ -432,6 +508,8 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
             return 'permission'
         if re.search(r"/(role|roles)(/|$)", pl):
             return 'role'
+        if re.search(r"/employee/attachments", pl):
+            return 'attachment'
         if '/employee/change-request' in pl:
             return 'change_request'
         return None
@@ -450,8 +528,78 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
         use_no_auth = str(mut.get("no_auth") or mut.get("without_auth") or "false").lower() in ("true", "1", "yes") or str(mut.get("type")).upper() in ("NO_AUTH", "NEGATIVE_AUTH")
         token = None if use_no_auth else auth.get_token(as_role)
 
+        # Before filling placeholders, attempt on-the-fly ID seeding for trailing placeholders
+        try:
+            placeholders = _extract_placeholders(tc.path)
+            if placeholders:
+                # Determine owner role consistent with later logic
+                owner_role = as_role if tc.self_access else (f"{as_role}_2" if hasattr(auth, 'roles') and f"{as_role}_2" in auth.roles else as_role)
+                # If path ends with a single placeholder and we lack an ID, try list endpoint fetch
+                if len(placeholders) == 1 and re.search(r"/\{[^}/]+\}$", tc.path):
+                    ph = placeholders[0]
+                    if _lookup_resource_id(owner_role, ph) is None:
+                        list_path = re.sub(r"/\{[^}/]+\}$", "", tc.path)
+                        try:
+                            pre_resp = http.request('GET', normalize_path(list_path), token=(None if str((tc.mutation or {}).get('no_auth')).lower() in ('true','1','yes') else auth.get_token(owner_role)))
+                            body = pre_resp.get('body', {})
+                            # Heuristic: find first item and id-like field
+                            def _first_item_local(b):
+                                try:
+                                    for path_keys in ([['data','items'],['data','list'],['data','results'],['items'],['list'],['results'],['data']]):
+                                        cur=b
+                                        ok=True
+                                        for k in path_keys:
+                                            if isinstance(cur, dict) and k in cur:
+                                                cur=cur[k]
+                                            else:
+                                                ok=False; break
+                                        if ok and isinstance(cur, list) and cur:
+                                            return cur[0]
+                                    if isinstance(b, list) and b:
+                                        return b[0]
+                                except Exception:
+                                    return None
+                                return None
+                            item = _first_item_local(body)
+                            rid_val = None
+                            if isinstance(item, dict):
+                                if 'id' in item:
+                                    try: rid_val = int(item['id'])
+                                    except Exception: pass
+                                if rid_val is None:
+                                    for k,v in item.items():
+                                        if isinstance(k,str) and 'id' in k.lower():
+                                            try:
+                                                rid_val = int(v)
+                                                base_key = k
+                                                break
+                                            except Exception:
+                                                continue
+                            if rid_val is not None and rid_val > 0:
+                                base = ph
+                                if base.endswith('_id'):
+                                    base = base[:-3]
+                                if base.startswith('id_'):
+                                    base = base[3:]
+                                memory.store_resource_id(owner_role, base, rid_val)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
         # Mutasi path: ganti {id}-like
         path = _fill_placeholders(tc.path, as_role, tc.self_access)
+        # Unconditional cleanup for known stray prefixes like 'I2/'
+        try:
+            rawp = str(path or '').lstrip('\ufeff').strip()
+            if not rawp.startswith('/'):
+                rawp = '/' + rawp
+            # Drop leading 'I2/' segment if present (artifact from earlier prompts/tools)
+            if rawp.lower().startswith('/i2/') and rawp.count('/') >= 2:
+                rawp = '/' + rawp.split('/', 2)[2]
+            path = rawp
+        except Exception:
+            pass
 
         # Repair path against OpenAPI if needed (handle missing leading slash or stray prefix artifacts)
         try:
@@ -477,7 +625,93 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
         # Special case: assign role to user -> enforce user_id=112 and JSON body
         try:
             if str(tc.method).upper() == 'POST' and '/user/' in path and '/roles' in path:
-                fixed_uid = 112
+                # Prefer stored/self user id; else generate a random-looking id
+                import random as _rnd
+                fixed_uid = None
+                # 1) Try to fetch from /users list and match by known email/username if available
+                try:
+                    tkn = auth.get_token(as_role)
+                    resp_users = http.request('GET', '/users', token=tkn)
+                    body = resp_users.get('body', {})
+                    # Extract first item
+                    def _first_item_local(b):
+                        try:
+                            for keys in ([['data','items'],['data','list'],['data','results'],['items'],['list'],['results'],['data']]):
+                                cur = b
+                                ok = True
+                                for k in keys:
+                                    if isinstance(cur, dict) and k in cur:
+                                        cur = cur[k]
+                                    else:
+                                        ok = False; break
+                                if ok and isinstance(cur, list) and cur:
+                                    return cur[0]
+                            if isinstance(b, list) and b:
+                                return b[0]
+                        except Exception:
+                            return None
+                        return None
+                    item = _first_item_local(body)
+                    # Try match with role's email/username if present in auth config
+                    prefer_val = None
+                    try:
+                        info = getattr(auth, 'roles', {}).get(as_role, {})
+                        pref_user = (info.get('payload') or {}).get('username') or (info.get('payload') or {}).get('email')
+                        prefer_val = pref_user
+                    except Exception:
+                        prefer_val = None
+                    # If item includes email/username and matches, take its id; else pick first id-like
+                    if isinstance(item, dict) and item:
+                        # direct id
+                        if 'id' in item:
+                            try:
+                                fixed_uid = int(item['id'])
+                            except Exception:
+                                fixed_uid = None
+                        # try match fields
+                        if (not fixed_uid) and isinstance(prefer_val, str):
+                            for key in ('email','user_email','username','login'):
+                                if key in item and str(item[key]).lower() == prefer_val.lower():
+                                    # pick its id-like
+                                    for cand in ('id','user_id','id_user'):
+                                        if cand in item:
+                                            try:
+                                                fixed_uid = int(item[cand])
+                                            except Exception:
+                                                pass
+                                            break
+                                    break
+                        # fallback: scan any id-like
+                        if not fixed_uid:
+                            for k,v in item.items():
+                                if isinstance(k,str) and 'id' in k.lower():
+                                    try:
+                                        fixed_uid = int(v)
+                                        break
+                                    except Exception:
+                                        continue
+                    # store for reuse
+                    if isinstance(fixed_uid, int) and fixed_uid > 0:
+                        try:
+                            memory.store_resource_id(as_role, 'user', fixed_uid)
+                        except Exception:
+                            pass
+                except Exception:
+                    fixed_uid = None
+                # 2) Fallbacks if list probing failed
+                if not isinstance(fixed_uid, int) or fixed_uid <= 0:
+                    try:
+                        # Use target self id when available
+                        fixed_uid = _target_user_id(as_role, True)
+                    except Exception:
+                        fixed_uid = None
+                if not isinstance(fixed_uid, int) or fixed_uid <= 0:
+                    try:
+                        fixed_uid = int(os.getenv('ASSIGN_ROLE_USER_ID', '0'))
+                    except Exception:
+                        fixed_uid = 0
+                if not isinstance(fixed_uid, int) or fixed_uid <= 0:
+                    fixed_uid = _rnd.randint(100, 999)
                 # normalize any placeholder or numeric segment to 112 for /user/{user_id}/roles
                 path = re.sub(r"(/user/)(?:\d+|\{[^}/]+\})(/roles)", fr"\1{fixed_uid}\2", path)
                 # enforce minimal body for role assignment
@@ -634,6 +868,7 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
                     'role': ['role_id', 'id_role', 'id'],
                     'consent': ['id_consent', 'consent_id', 'id'],
                     'change_request': ['id_change_request', 'change_request_id', 'id'],
+                    'attachment': ['item_id', 'attachment_id', 'id_attachment', 'id'],
                 }
                 if rkey and isinstance(cands, dict) and cands:
                     keys = placeholder_keys.get(rkey, ['id'])
@@ -1059,17 +1294,21 @@ class AgentOrchestrator:
         # Optional LLM client (OpenAI or Gemini)
         self.client = None
         self.llm_provider = (os.getenv("LLM_PROVIDER") or "openai").strip().lower()
+        # Normalize provider aliases
+        if self.llm_provider in ("google", "google-genai", "google_genai"):
+            self.llm_provider = "gemini"
         if self.llm_provider == "gemini" and genai and os.getenv("GEMINI_API_KEY"):
             try:
                 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-                self.gemini_model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-                self.client = genai.GenerativeModel(self.gemini_model_name)
+                self.llm_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+                self.client = genai.GenerativeModel(self.llm_model)
             except Exception:
                 self.client = None
         elif self.llm_provider in ("openai", "") and OpenAI and os.getenv("OPENAI_API_KEY"):
             try:
                 self.client = OpenAI()
                 self.llm_provider = "openai"
+                self.llm_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
             except Exception:
                 self.client = None
         # Tabular RBAC (optional for planner prompt)
@@ -1081,6 +1320,130 @@ class AgentOrchestrator:
             self.roles = get_all_roles()
         except Exception:
             self.roles = []
+
+    def _llm_discover_ids(self, http: HttpClient, auth: AuthManager, openapi: dict, memory: Memory, roles: list, max_per_role: int = 5, redact_max_chars: int = 800):
+        """Use LLM to help pick id-like fields from collection endpoints when heuristics are ambiguous.
+        Sends a redacted, small sample to the LLM and asks which field to use for placeholder ids.
+        """
+        if not self.client:
+            return
+        try:
+            paths = (openapi or {}).get('paths', {}) if isinstance(openapi, dict) else {}
+            # Collection endpoints: GET and no placeholders
+            collections = []
+            for p, methods in (paths or {}).items():
+                get_meta = (methods or {}).get('get') or (methods or {}).get('GET')
+                if not get_meta:
+                    continue
+                if re.search(r"\{[^}/]+\}", str(p) or ''):
+                    continue
+                collections.append(normalize_path(p))
+            # Map list path -> trailing placeholder candidates from detail endpoints
+            trailing_map = {}
+            for p, methods in (paths or {}).items():
+                phs = re.findall(r"\{([^}/]+)\}", p or "")
+                if len(phs) == 1 and re.search(r"/\{[^}/]+\}$", p or ""):
+                    lp = re.sub(r"/\{[^}/]+\}$", "", normalize_path(p))
+                    trailing_map.setdefault(lp, set()).add(phs[0])
+            # Helper: first item from body
+            def _first_item_local(body):
+                try:
+                    for keys in ([['data','items'],['data','list'],['data','results'],['items'],['list'],['results'],['data']]):
+                        cur = body
+                        ok = True
+                        for k in keys:
+                            if isinstance(cur, dict) and k in cur:
+                                cur = cur[k]
+                            else:
+                                ok = False; break
+                        if ok and isinstance(cur, list) and cur:
+                            return cur[0]
+                    if isinstance(body, list) and body:
+                        return body[0]
+                except Exception:
+                    return None
+                return None
+
+            # Iterate roles and a small number of collections
+            for role in roles or []:
+                taken = 0
+                try:
+                    token = auth.get_token(role)
+                except Exception:
+                    continue
+                for lp in collections:
+                    if taken >= max_per_role:
+                        break
+                    try:
+                        resp = http.request('GET', lp, token=token)
+                        body = resp.get('body', {})
+                        item = _first_item_local(body)
+                        if not isinstance(item, dict) or not item:
+                            continue
+                        # Redact + shrink for prompt
+                        try:
+                            import json as _json
+                            sample = _redact_str(_json.dumps(item, ensure_ascii=False), max_chars=redact_max_chars)
+                        except Exception:
+                            sample = _redact_str(str(item), max_chars=redact_max_chars)
+                        placeholders = list(trailing_map.get(lp, []))
+                        seg = lp.strip('/').split('/')[-1] if lp else 'resource'
+                        prompt = (
+                            "You are an API tester assisting with ID discovery for BAC tests.\n"
+                            f"List path: {lp}\n"
+                            f"Resource token hint: {seg}\n"
+                            f"Detail placeholders (if any): {placeholders}\n"
+                            "Given a JSON object for one item, pick the most appropriate id-like field (e.g., id, id_change_request, change_request_id)\n"
+                            "that should be used in the detail path placeholder. Return strictly JSON: {\"field\": \"...\"}.\n\n"
+                            f"Item sample (redacted):\n{sample}"
+                        )
+                        # Call provider
+                        field_name = None
+                        try:
+                            if self.llm_provider == 'gemini':
+                                resp_llm = self.client.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
+                                content = getattr(resp_llm, 'text', None)
+                                if not content and getattr(resp_llm, 'candidates', None):
+                                    try:
+                                        content = resp_llm.candidates[0].content.parts[0].text
+                                    except Exception:
+                                        content = '{}'
+                            else:
+                                resp_llm = self.client.chat.completions.create(
+                                    model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                                    temperature=0.1,
+                                    top_p=0.1,
+                                    max_tokens=200,
+                                    response_format={"type": "json_object"},
+                                    messages=[{"role": "system", "content": "Return JSON only."}, {"role": "user", "content": prompt}],
+                                )
+                                content = resp_llm.choices[0].message.content
+                            import json as _json
+                            data = _json.loads(content or '{}')
+                            field_name = data.get('field') or data.get('key')
+                        except Exception:
+                            field_name = None
+                        # Store id using chosen field if present
+                        if isinstance(field_name, str) and field_name:
+                            try:
+                                rid_val = int(item.get(field_name)) if isinstance(item.get(field_name), (int, str)) else None
+                            except Exception:
+                                rid_val = None
+                            if isinstance(rid_val, int) and rid_val > 0:
+                                base = field_name
+                                if base.endswith('_id'):
+                                    base = base[:-3]
+                                if base.startswith('id_'):
+                                    base = base[3:]
+                                # Also store using resource segment hint
+                                for b in {base, seg}:
+                                    if b:
+                                        memory.store_resource_id(role, b, rid_val)
+                                taken += 1
+                    except Exception:
+                        continue
+        except Exception:
+            return
 
     def _load_openapi(self) -> dict:
         return load_json(os.path.join(self.data_dir, "openapi.json"))
@@ -1175,8 +1538,10 @@ class AgentOrchestrator:
         # Keep order by method preference GET->POST->PUT->DELETE
         order = {"GET":0, "POST":1, "PUT":2, "PATCH":3, "DELETE":4}
         eps_sorted = sorted(eps, key=lambda e: (order.get((e.get('method') or 'GET').upper(), 9), normalize_path(e.get('path') or '/')))
-        # Limit to TOP_N_ENDPOINTS to avoid explosion
-        eps_sorted = eps_sorted[:TOP_N_ENDPOINTS]
+        # Limit based on configured max_endpoints (0 = unlimited)
+        maxn = getattr(self, '_max_endpoints', TOP_N_ENDPOINTS)
+        if int(maxn) > 0:
+            eps_sorted = eps_sorted[:int(maxn)]
         # Build plan pairs per role: self and other for IDOR coverage
         plan: list[dict] = []
         for e in eps_sorted:
@@ -1319,10 +1684,47 @@ class AgentOrchestrator:
             )
             
             # Call LLM
-            if self.llm_provider == "google_genai" and genai:
-                model = genai.GenerativeModel(self.llm_model)
-                response = model.generate_content(prompt)
-                return response.text
+            if (self.llm_provider in ("gemini", "google_genai", "google-genai")) and genai:
+                # Try configured model first, then fallbacks for compatibility
+                names = []
+                try:
+                    if getattr(self, 'llm_model', None):
+                        names.append(self.llm_model)
+                except Exception:
+                    pass
+                # Common Gemini candidates across API versions
+                for cand in [
+                    'gemini-2.5-flash',
+                    'gemini-2.5-pro',
+                    'gemini-2.0-flash',
+                    'gemini-1.5-flash-latest',
+                    'gemini-1.5-pro-latest',
+                ]:
+                    if cand not in names:
+                        names.append(cand)
+                tried = []
+                last_err = None
+                for name in names:
+                    try:
+                        m = genai.GenerativeModel(name)
+                        resp = m.generate_content(prompt)
+                        content = getattr(resp, 'text', None)
+                        if not content and getattr(resp, 'candidates', None):
+                            try:
+                                content = resp.candidates[0].content.parts[0].text
+                            except Exception:
+                                content = ''
+                        if content:
+                            try:
+                                self.llm_model = name
+                            except Exception:
+                                pass
+                            return content
+                    except Exception as e:
+                        last_err = str(e)
+                        tried.append(name)
+                        continue
+                raise RuntimeError(f"Gemini summary failed for models: {', '.join(tried)} | last_error: {last_err}")
             elif self.llm_provider == "openai" and self.client:
                 response = self.client.chat.completions.create(
                     model=self.llm_model,
@@ -1428,7 +1830,23 @@ class AgentOrchestrator:
         disc = agent.get("discovery") or {}
         if bool(disc.get("enabled", True)):
             try:
-                _discover_ids(http, auth, openapi, memory, roles, max_per_role=int(disc.get("max_per_role", 10)))
+                _discover_ids(
+                    http, auth, openapi, memory, roles,
+                    max_per_role=int(disc.get("max_per_role", 10)),
+                    extended=bool(disc.get("extended", False))
+                )
+            except Exception:
+                pass
+        # Optional: LLM-assisted ID discovery on collections
+        if self.client:
+            try:
+                llm_cfg = agent.get("llm", {}) if isinstance(agent, dict) else {}
+                if bool(llm_cfg.get("discovery_enabled", False)):
+                    self._llm_discover_ids(
+                        http, auth, openapi, memory, roles,
+                        max_per_role=max(1, int(disc.get("max_per_role", 10)) // 2),
+                        redact_max_chars=int(llm_cfg.get("redact_max_chars", 800))
+                    )
             except Exception:
                 pass
         roles = policy.get("roles") or self.roles or available_auth_roles
@@ -1442,12 +1860,43 @@ class AgentOrchestrator:
         # Planning mode: policy-first (best practice) or default
         planning = (agent.get('planning') or {}) if isinstance(agent, dict) else {}
         policy_first = bool(planning.get('policy_first', True))
+        include_all = bool(planning.get('include_all_endpoints', False))
+        plan_with_llm = bool(planning.get('plan_with_llm', True))
+        # derive max endpoints (0 or 'all' -> unlimited)
+        max_eps_cfg = planning.get('max_endpoints', TOP_N_ENDPOINTS)
+        try:
+            if (isinstance(max_eps_cfg, str) and max_eps_cfg.strip().lower() == 'all') or int(max_eps_cfg) <= 0:
+                self._max_endpoints = 0
+            else:
+                self._max_endpoints = int(max_eps_cfg)
+        except Exception:
+            self._max_endpoints = TOP_N_ENDPOINTS
+        # Build excludes from config: strings like "POST:/roles" or dicts {method, path}
+        excludes_raw = planning.get('excludes') or []
+        exclude_set = set()
+        try:
+            if isinstance(excludes_raw, list):
+                for it in excludes_raw:
+                    if isinstance(it, str) and ':' in it:
+                        mth, pth = it.split(':', 1)
+                        exclude_set.add((str(mth).upper().strip(), normalize_path(str(pth).strip())))
+                    elif isinstance(it, dict):
+                        m = str(it.get('method') or 'GET').upper()
+                        p = normalize_path(str(it.get('path') or '/'))
+                        exclude_set.add((m, p))
+        except Exception:
+            exclude_set = set()
+        # Expose excludes to instance for use in helper flows
+        try:
+            self._excludes = exclude_set
+        except Exception:
+            pass
 
         if policy_first:
             plan_list, endpoints = self._plan_from_policy(policy, roles, openapi)
         else:
-            # Try LLM plan, fallback to deterministic plan via OpenAPI/config/policy
-            llm_plan = self._plan_tests_llm(openapi, roles)
+            # Try LLM plan (if enabled), fallback to deterministic plan via OpenAPI/config/policy
+            llm_plan = self._plan_tests_llm(openapi, roles) if (plan_with_llm and self.client) else None
             if llm_plan:
                 # When no OpenAPI, we still need endpoints for coverage/reporting
                 if isinstance(openapi, dict) and openapi.get('paths'):
@@ -1459,17 +1908,25 @@ class AgentOrchestrator:
                 plan_list = llm_plan
             else:
                 if isinstance(openapi, dict) and openapi.get('paths'):
-                    plan_list, endpoints = plan_tests(openapi, roles)
+                    plan_list, endpoints = plan_tests(openapi, roles, max_endpoints=self._max_endpoints, include_all_endpoints=include_all)
                 else:
                     eps_cfg = load_endpoints_config(self.config_dir)
                     eps_pol = endpoints_from_policy(policy)
                     endpoints = (eps_cfg or []) + [e for e in eps_pol if e not in (eps_cfg or [])]
                     # Deterministic plan from endpoints
                     plan_list = []
-                    for e in endpoints[:TOP_N_ENDPOINTS]:
+                    cut = len(endpoints) if self._max_endpoints == 0 else self._max_endpoints
+                    for e in endpoints[:cut]:
                         for r in roles:
                             plan_list.append({"method": e["method"], "path": normalize_path(e["path"]), "role": r, "self_access": True})
                             plan_list.append({"method": e["method"], "path": normalize_path(e["path"]), "role": r, "self_access": False})
+
+        # Apply excludes to planning pairs before generation
+        if exclude_set:
+            try:
+                plan_list = [p for p in plan_list if (str(p.get('method')).upper(), normalize_path(p.get('path'))) not in exclude_set]
+            except Exception:
+                pass
 
         # GENERATE (LLM, fallback deterministic)
         generated = []
@@ -1598,6 +2055,12 @@ class AgentOrchestrator:
             return
         def has_ep(m, p):
             return (m.upper(), normalize_path(p)) in {(e["method"].upper(), normalize_path(e["path"])) for e in extract_paths_from_openapi(openapi)}
+        def _excluded(m, p):
+            try:
+                ex = getattr(self, '_excludes', set())
+            except Exception:
+                ex = set()
+            return (str(m).upper(), normalize_path(p)) in (ex or set())
         def choose_role(prefer: str, fallback_first=True):
             if prefer in available_roles:
                 return prefer
@@ -1609,15 +2072,15 @@ class AgentOrchestrator:
         # permissions
         try:
             seq = []
-            if has_ep('GET','/permissions'):
+            if has_ep('GET','/permissions') and not _excluded('GET','/permissions'):
                 seq.append(TestCase(method='GET', path='/permissions', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('POST','/permissions'):
+            if has_ep('POST','/permissions') and not _excluded('POST','/permissions'):
                 seq.append(TestCase(method='POST', path='/permissions', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('GET','/permission/{id_permission}'):
+            if has_ep('GET','/permission/{id_permission}') and not _excluded('GET','/permission/{id_permission}'):
                 seq.append(TestCase(method='GET', path='/permission/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('PUT','/permission/{id_permission}'):
+            if has_ep('PUT','/permission/{id_permission}') and not _excluded('PUT','/permission/{id_permission}'):
                 seq.append(TestCase(method='PUT', path='/permission/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('DELETE','/permission/{id_permission}'):
+            if has_ep('DELETE','/permission/{id_permission}') and not _excluded('DELETE','/permission/{id_permission}'):
                 seq.append(TestCase(method='DELETE', path='/permission/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
             for tc in seq:
                 memory.record_test(tc)
@@ -1627,14 +2090,14 @@ class AgentOrchestrator:
         # vertical escalation attempts (BOLA) against admin-ish endpoints using Employee token
         try:
             esc = []
-            if employee and has_ep('GET','/roles'):
+            if employee and has_ep('GET','/roles') and not _excluded('GET','/roles'):
                 esc.append(TestCase(method='GET', path='/roles', role=employee, self_access=True, mutation={"type":"BOLA", "headers": {"X-Role": "Admin_HC"}}))
-            if employee and has_ep('GET','/permissions'):
+            if employee and has_ep('GET','/permissions') and not _excluded('GET','/permissions'):
                 esc.append(TestCase(method='GET', path='/permissions', role=employee, self_access=True, mutation={"type":"BOLA", "headers": {"X-Role": "Admin_HC"}}))
-            if employee and has_ep('GET','/users'):
+            if employee and has_ep('GET','/users') and not _excluded('GET','/users'):
                 esc.append(TestCase(method='GET', path='/users', role=employee, self_access=True, mutation={"type":"BOLA", "headers": {"X-Role": "Admin_HC"}}))
             # also a no-auth escalation probe for one admin endpoint
-            if has_ep('GET','/roles'):
+            if has_ep('GET','/roles') and not _excluded('GET','/roles'):
                 esc.append(TestCase(method='GET', path='/roles', role=employee or admin, self_access=True, mutation={"type":"NO_AUTH", "no_auth": True}))
             for tc in esc:
                 memory.record_test(tc)
@@ -1644,15 +2107,15 @@ class AgentOrchestrator:
         # roles
         try:
             seq = []
-            if has_ep('GET','/roles'):
+            if has_ep('GET','/roles') and not _excluded('GET','/roles'):
                 seq.append(TestCase(method='GET', path='/roles', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('POST','/roles'):
+            if has_ep('POST','/roles') and not _excluded('POST','/roles'):
                 seq.append(TestCase(method='POST', path='/roles', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('GET','/role/{id_role}'):
+            if has_ep('GET','/role/{id_role}') and not _excluded('GET','/role/{id_role}'):
                 seq.append(TestCase(method='GET', path='/role/{id_role}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('PUT','/role/{id_role}'):
+            if has_ep('PUT','/role/{id_role}') and not _excluded('PUT','/role/{id_role}'):
                 seq.append(TestCase(method='PUT', path='/role/{id_role}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('DELETE','/role/{id_role}'):
+            if has_ep('DELETE','/role/{id_role}') and not _excluded('DELETE','/role/{id_role}'):
                 seq.append(TestCase(method='DELETE', path='/role/{id_role}', role=admin, self_access=True, mutation={"type":"baseline"}))
             for tc in seq:
                 memory.record_test(tc)
@@ -1663,17 +2126,17 @@ class AgentOrchestrator:
         try:
             seq = []
             # list endpoints may vary; prefer /employee/consents/list if present
-            if has_ep('GET','/employee/consents/list'):
+            if has_ep('GET','/employee/consents/list') and not _excluded('GET','/employee/consents/list'):
                 seq.append(TestCase(method='GET', path='/employee/consents/list', role=admin, self_access=True, mutation={"type":"baseline"}))
-            elif has_ep('GET','/employee/consents/active'):
+            elif has_ep('GET','/employee/consents/active') and not _excluded('GET','/employee/consents/active'):
                 seq.append(TestCase(method='GET', path='/employee/consents/active', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('POST','/employee/consents'):
+            if has_ep('POST','/employee/consents') and not _excluded('POST','/employee/consents'):
                 seq.append(TestCase(method='POST', path='/employee/consents', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('GET','/employee/consents/{id_consent}'):
+            if has_ep('GET','/employee/consents/{id_consent}') and not _excluded('GET','/employee/consents/{id_consent}'):
                 seq.append(TestCase(method='GET', path='/employee/consents/{id_consent}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('PUT','/employee/consents/{id_consent}'):
+            if has_ep('PUT','/employee/consents/{id_consent}') and not _excluded('PUT','/employee/consents/{id_consent}'):
                 seq.append(TestCase(method='PUT', path='/employee/consents/{id_consent}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('DELETE','/employee/consents/{id_consent}'):
+            if has_ep('DELETE','/employee/consents/{id_consent}') and not _excluded('DELETE','/employee/consents/{id_consent}'):
                 seq.append(TestCase(method='DELETE', path='/employee/consents/{id_consent}', role=admin, self_access=True, mutation={"type":"baseline"}))
             for tc in seq:
                 memory.record_test(tc)

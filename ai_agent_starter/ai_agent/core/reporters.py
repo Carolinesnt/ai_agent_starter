@@ -9,6 +9,11 @@ def save_json_report(path: str, results: List[Result], policy, tests: List[TestC
     m = metrics(cf)
     cov = coverage(tests, roles, endpoints)
     ttd = time_to_detect(results, policy, start_ts)
+    # Requirement: always present with null seconds for compatibility
+    try:
+        ttd["seconds"] = None
+    except Exception:
+        ttd = {"seconds": None, "test_index": None}
     # Summaries
     total_tests = len(results)
     # Potential vulns per our conservative definition: expected deny but got 200 (classified as FN)
@@ -22,6 +27,32 @@ def save_json_report(path: str, results: List[Result], policy, tests: List[TestC
             "role": r.tc.role,
             "artifact": r.artifact,
         })
+
+    # Classify each result into TP/TN/FP/FN/NF/ERR lists
+    classified: Dict[str, list] = {"TP": [], "TN": [], "FP": [], "FN": [], "NF": [], "ERR": []}
+    for r in results:
+        try:
+            exp = expected_status(policy, r.tc)
+            lab = classify(exp, r.status_code)
+            # Normalize labels to keys above
+            if lab == "TP_ALLOW":
+                key = "TP"
+            elif lab == "NOT_FOUND":
+                key = "NF"
+            elif lab == "ERROR":
+                key = "ERR"
+            else:
+                key = lab
+            if key in classified:
+                classified[key].append({
+                    "method": r.tc.method,
+                    "path": r.tc.path,
+                    "role": r.tc.role,
+                    "self_access": r.tc.self_access,
+                    "status": r.status_code,
+                })
+        except Exception:
+            continue
     # Use DD-MM-YYYY HH:MM format (UTC-based to preserve prior semantics)
     data = {
         "generated_at": datetime.datetime.utcnow().strftime("%d-%m-%Y %H:%M"),
@@ -36,6 +67,7 @@ def save_json_report(path: str, results: List[Result], policy, tests: List[TestC
         "llm_summary": llm_summary or "",
         "artifacts": artifacts,
         "reflection": reflection or {},
+        "classified": classified,
         "results": [{
             "method": r.tc.method, "path": r.tc.path, "role": r.tc.role,
             "self_access": r.tc.self_access, "status": r.status_code, "body": r.body, "ts": r.ts,
@@ -81,6 +113,27 @@ def save_json_report(path: str, results: List[Result], policy, tests: List[TestC
                 f.write(f"- ℹ️ **NF (Not Found):** {cf['NF']} - 404 responses (not BAC findings per OWASP)\n")
             f.write("\n")
             
+            # Endpoint lists by classification
+            def _writelst(title: str, items: list, emoji: str = ""):
+                f.write(f"### {emoji} {title} ({len(items)})\n\n")
+                cap = 200
+                for it in items[:cap]:
+                    f.write(f"- `{it['method']} {it['path']}` [{it['role']}] → {it['status']}\n")
+                if len(items) > cap:
+                    f.write(f"\n... and {len(items)-cap} more\n\n")
+                else:
+                    f.write("\n")
+
+            f.write("## 🧭 Endpoints by Classification\n\n")
+            _writelst("TP (Allowed as expected)", classified.get('TP', []), "✅")
+            _writelst("TN (Denied as expected)", classified.get('TN', []), "✅")
+            _writelst("FP (Allowed expected but denied)", classified.get('FP', []), "⚠️")
+            _writelst("FN (Denied expected but allowed) — Vulnerabilities", classified.get('FN', []), "🚨")
+            if cf.get('NF', 0) > 0:
+                _writelst("NF (Not Found)", classified.get('NF', []), "ℹ️")
+            if cf.get('ERR', 0) > 0:
+                _writelst("ERR (5xx System Errors)", classified.get('ERR', []), "❌")
+
             f.write("## 📁 Test Artifacts\n\n")
             f.write("Full request/response artifacts saved for forensic analysis:\n\n")
             for a in artifacts[:50]:

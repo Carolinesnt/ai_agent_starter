@@ -349,12 +349,11 @@ def show_specification():
 {Colors.BOLD}{Colors.OKGREEN}🤖 AI AGENT SPECIFICATIONS{Colors.ENDC}
 
 {Colors.BOLD}{Colors.OKCYAN}LLM Configuration:{Colors.ENDC}
-  • Model Provider: OpenAI / Azure OpenAI
-  • Primary Model: GPT-4 Turbo (gpt-4-1106-preview)
-  • Fallback Model: GPT-3.5 Turbo
-  • Temperature: 0.7 (optimal for security testing)
-  • Max Tokens: 4096
-  • Context Window: 128K tokens
+  • Model Provider: Google Generative AI
+  • Primary Model: Gemini 2.5 Flash (gemini-2.5-flash)
+  • Alternative Models: Gemini 2.5 Pro, Gemini 1.5 Pro
+  • Configuration: Via GEMINI_API_KEY environment variable
+  • Privacy Features: Content redaction (max 1000 chars per snippet)
 
 {Colors.BOLD}{Colors.OKCYAN}Agent Architecture:{Colors.ENDC}
   • Core Engine: Multi-Agent Orchestrator
@@ -528,10 +527,16 @@ def show_status():
         print(f"{Colors.BOLD}Test Summary:{Colors.ENDC}")
         print(f"  Total Tests: {Colors.OKCYAN}{summary.get('total_tests', 'N/A')}{Colors.ENDC}")
         
-        # Calculate duration
-        duration = time_to_detect.get('seconds', 0)
-        duration_str = f"{duration:.1f}s" if duration else "N/A"
-        print(f"  Duration: {Colors.OKCYAN}{duration_str}{Colors.ENDC}")
+        # Calculate total execution duration
+        total_duration = data.get('total_duration_seconds')
+        duration_str = f"{total_duration:.2f}s" if total_duration else "N/A"
+        print(f"  Total Execution Time: {Colors.OKCYAN}{duration_str}{Colors.ENDC}")
+        
+        # Time to first vulnerability detection
+        time_to_detect = data.get('time_to_detect', {})
+        ttd_seconds = time_to_detect.get('seconds')
+        ttd_str = f"{ttd_seconds:.2f}s" if ttd_seconds else "N/A"
+        print(f"  Time to First Detection: {Colors.OKCYAN}{ttd_str}{Colors.ENDC}")
         
         # Show roles tested
         roles_tested = coverage.get('roles', 'N/A')

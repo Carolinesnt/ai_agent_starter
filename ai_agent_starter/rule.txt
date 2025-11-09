@@ -1,0 +1,90 @@
+# BAC Testing Evaluator Rules
+# This file is automatically loaded by ai_agent/core/evaluators.py
+# Rules define which HTTP status codes should be treated as non-BAC findings
+
+## Status Code Classification Rules
+
+### Not Found (404) - NOT a BAC finding
+# 404 means resource/endpoint doesn't exist - not an authorization issue
+# These should be classified as NF (Not Found), not TP/TN/FP/FN
+404 not found
+
+### Validation Errors (4xx) - Non-BAC findings  
+# These are input validation issues, not access control problems
+400 bukan temuan
+409 conflict - bukan temuan
+422 unprocessable - bukan temuan
+
+### Server Errors (5xx) - System stability issue
+# 5xx errors are system/infrastructure problems, not BAC vulnerabilities
+# Automatically handled as ERROR category in evaluators.py
+
+## Resource-Scoped Endpoint Patterns
+
+### Self-Only Access Endpoints
+# These endpoints should ONLY allow access to user's own resources
+# Pattern: /employee/attachments/{item_id}/*
+#   - self_access=True + own item_id → expect 200 (TP)
+#   - self_access=False + other's item_id → expect 403 (TN)
+# 
+# Pattern: /employee/change-request/{id_change_request}
+#   - self_access=True + own id → expect 200 (TP)
+#   - self_access=False + other's id → expect 403 (TN)
+#
+# Automatically detected by _is_resource_scoped_endpoint() in evaluators.py
+
+## Best Practices for Evaluation
+
+1. **404 is NOT a False Positive**
+   - If endpoint returns 404, it means endpoint/resource not found
+   - NOT an access control misconfiguration
+   - Should be analyzed separately as test data issue
+
+2. **400-level validation errors are NOT BAC issues**
+   - 400 Bad Request = invalid input format
+   - 409 Conflict = business logic constraint
+   - 422 Unprocessable = validation failure
+   - These should be TN (correctly denied) but not counted as security controls
+
+3. **Resource-scoped endpoints need owner check**
+   - Endpoints with {item_id}, {id_change_request}, etc.
+   - Must verify the ID belongs to the authenticated user
+   - 403 for other's resources = correct behavior (TN)
+   - 200 for own resources = correct behavior (TP)
+
+4. **Admin bypass logic**
+   - Roles with "rbac_admin" permission can access all resources
+   - Should expect 200 regardless of self_access flag
+   - Implemented in evaluators.py expected_status()
+
+## Implementation Notes
+
+### Code Location
+- Evaluator logic: ai_agent/core/evaluators.py
+- Helper function: _is_resource_scoped_endpoint(path)
+- Expected status: expected_status(policy, tc)
+- Classification: classify(exp, actual_status)
+
+### How Rules Are Applied
+1. Status rules loaded from this file at module import
+2. Pattern matching done in _is_resource_scoped_endpoint()
+3. Expected status calculated based on:
+   - Policy rules (allowed_endpoints, critical_deny)
+   - Resource-scoped detection
+   - Role permissions (rbac_admin bypass)
+   - self_access flag
+
+### Extensibility
+To add new resource-scoped patterns:
+1. Update _is_resource_scoped_endpoint() in evaluators.py
+2. Add pattern documentation in this file
+3. Run test_evaluator_fix.py to validate
+
+### Test Validation
+Run: python test_evaluator_fix.py
+Expected: All detection and expected_status tests pass
+
+## Changelog
+- 2025-11-07: Added resource-scoped endpoint detection for /employee/attachments/{item_id}/*
+- 2025-11-07: Added /employee/change-request/{id} pattern detection
+- 2025-11-07: Created rule.txt for centralized best practices documentation

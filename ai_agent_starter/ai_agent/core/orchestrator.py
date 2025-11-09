@@ -216,7 +216,7 @@ def _discover_ids(http: HttpClient, auth: AuthManager, openapi: dict, memory: Me
             if stored >= max_per_role:
                 break
             try:
-                resp = http.request('GET', c['list_path'], token=token)
+                resp = http.request('GET', c['list_path'], token=token, role=role, bac_type='discovery')
                 item = _first_item(resp.get('body', {}))
                 key, rid = _pick_id_key(item)
                 if rid is not None:
@@ -255,7 +255,7 @@ def _discover_ids(http: HttpClient, auth: AuthManager, openapi: dict, memory: Me
                         continue
                     seen_paths.add(lp)
                     try:
-                        resp = http.request('GET', lp, token=token)
+                        resp = http.request('GET', lp, token=token, role=role, bac_type='discovery')
                         body = resp.get('body', {})
                         item = _first_item(body)
                         if not item:
@@ -540,7 +540,7 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
                     if _lookup_resource_id(owner_role, ph) is None:
                         list_path = re.sub(r"/\{[^}/]+\}$", "", tc.path)
                         try:
-                            pre_resp = http.request('GET', normalize_path(list_path), token=(None if str((tc.mutation or {}).get('no_auth')).lower() in ('true','1','yes') else auth.get_token(owner_role)))
+                            pre_resp = http.request('GET', normalize_path(list_path), token=(None if str((tc.mutation or {}).get('no_auth')).lower() in ('true','1','yes') else auth.get_token(owner_role)), role=owner_role, bac_type='discovery')
                             body = pre_resp.get('body', {})
                             # Heuristic: find first item and id-like field
                             def _first_item_local(b):
@@ -631,7 +631,7 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
                 # 1) Try to fetch from /users list and match by known email/username if available
                 try:
                     tkn = auth.get_token(as_role)
-                    resp_users = http.request('GET', '/users', token=tkn)
+                    resp_users = http.request('GET', '/users', token=tkn, role=as_role, bac_type='discovery')
                     body = resp_users.get('body', {})
                     # Extract first item
                     def _first_item_local(b):
@@ -1300,7 +1300,7 @@ class AgentOrchestrator:
         if self.llm_provider == "gemini" and genai and os.getenv("GEMINI_API_KEY"):
             try:
                 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-                self.llm_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+                self.llm_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
                 self.client = genai.GenerativeModel(self.llm_model)
             except Exception:
                 self.client = None
@@ -1697,7 +1697,7 @@ class AgentOrchestrator:
                     'gemini-2.5-flash',
                     'gemini-2.5-pro',
                     'gemini-2.0-flash',
-                    'gemini-1.5-flash-latest',
+                    'gemini-2.5-flash-latest',
                     'gemini-1.5-pro-latest',
                 ]:
                     if cand not in names:

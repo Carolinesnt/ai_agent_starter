@@ -71,6 +71,33 @@ def _policy_allowed_endpoints(policy, role: str):
     critical_deny = set(role_rules.get("critical_deny", []) or [])
     return allowed, critical_deny
 
+def _is_resource_scoped_endpoint(path: str) -> bool:
+    """
+    Detect endpoints that are resource-scoped (self-only access).
+    These endpoints should only allow access to resources owned by the authenticated user.
+    
+    Patterns detected:
+    - /attachments/{item_id}/* - Employee can only access their own attachments
+    - /change-request/{id}/* - Employee can only access their own change requests (detail endpoints)
+    
+    Returns True if the endpoint should be treated as self-only.
+    """
+    import re
+    path_lower = (path or "").lower()
+    
+    # Pattern 1: /employee/attachments/{item_id}/* endpoints
+    if re.search(r"/employee/attachments/\{[^}]*\}", path_lower):
+        return True
+    
+    # Pattern 2: Detail endpoints with specific ID parameter (not list endpoints)
+    # e.g., /employee/change-request/{id_change_request} but not /employee/change-request
+    if "/employee/" in path_lower and "{" in path_lower:
+        # Only if it's a detail endpoint (has ID parameter after the resource name)
+        if re.search(r"/change-request/\{[^}]*\}", path_lower):
+            return True
+    
+    return False
+
 def expected_status(policy, tc: TestCase) -> Dict[str, Any]:
     # Format A: explicit rules with allow/deny and self semantics
     for rule in policy.get("rules", []):
@@ -105,6 +132,16 @@ def expected_status(policy, tc: TestCase) -> Dict[str, Any]:
         if key in critical_deny:
             return {"status_in":[401,403,404], "status_not_in":[200]}
         if key in allowed:
+            # Check if endpoint is resource-scoped (self-only access pattern)
+            is_resource_scoped = _is_resource_scoped_endpoint(tc.path)
+            
+            # If endpoint is resource-scoped, only allow access when self_access=True
+            if is_resource_scoped:
+                # For resource-scoped endpoints (e.g., /attachments/{item_id}):
+                # - self_access=True (baseline test with own resource) → expect 200
+                # - self_access=False (IDOR test with other's resource) → expect 403/404
+                return {"status_in":[200], "status_not_in":[401,403]} if tc.self_access else {"status_in":[401,403,404], "status_not_in":[200]}
+            
             # If endpoint is not resource-owner specific (no {id}-like), allow for both self/other
             # Or if role has rbac_admin permission, treat access as allowed regardless of self/other
             if (not has_id_param(tc.path)) or ("rbac_admin" in perms):

@@ -7,7 +7,7 @@ concurrency: 2
 artifacts_dir: "ai_agent/runs/artifacts"
 log_dir: "ai_agent/runs/logs"
 dry_run: false
-request_delay_ms: 1000  # slow mode for step-by-step runs (can override via REQUEST_DELAY_MS env)
+request_delay_ms: 1000 
 
 # LLM features (privacy-first):
 llm:

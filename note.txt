@@ -1,3 +1,38 @@
+# Time Tracking Implementation Notes
+
+## Changes Made (2025-01-07)
+
+### 1. ai_agent/core/reporters.py
+- Added `import time` to calculate execution duration
+- Calculate `total_duration = end_ts - start_ts` in save_json_report()
+- Removed hardcoded `ttd["seconds"] = None` to show actual time to first FN detection
+- Added `total_duration_seconds` field in JSON report
+- Added "Total Execution Time" line in Markdown report
+
+### 2. byebac.py show_status()
+- Updated to read `total_duration_seconds` from report
+- Display both metrics:
+  - "Total Execution Time" (total waktu keseluruhan)
+  - "Time to First Detection" (waktu hingga temuan FN pertama)
+
+## JSON Report Structure
+```json
+{
+  "total_duration_seconds": 45.234,  // Total waktu eksekusi (start sampai selesai)
+  "time_to_detect": {
+    "seconds": 12.456,  // Waktu hingga temuan FN pertama
+    "test_index": 23    // Index test yang menemukan FN pertama
+  }
+}
+```
+
+## Expected Behavior
+- `total_duration_seconds`: Always filled with total execution time (start_ts to end_ts)
+- `time_to_detect.seconds`: Only filled if FN found, otherwise null
+- Both metrics shown in /status command and report files
+
+---
+
 ### ℹ️ NF (Not Found) (38)
 
 - `GET /employee/change-request/{id_change_req}` [Employee] → 404

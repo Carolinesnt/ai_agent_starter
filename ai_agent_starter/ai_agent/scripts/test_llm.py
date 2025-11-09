@@ -84,7 +84,7 @@ def test_gemini():
     api_key = os.getenv("GEMINI_API_KEY")
     # Seed with env and common aliases; we'll augment with server-supported list below
     env_model = os.getenv("GEMINI_MODEL")
-    preferred = [m for m in [env_model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-flash-latest", "gemini-pro-latest", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"] if m]
+    preferred = [m for m in [env_model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-flash-latest", "gemini-pro-latest", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-pro"] if m]
     if not api_key:
         fail("GEMINI_API_KEY is empty")
         return False

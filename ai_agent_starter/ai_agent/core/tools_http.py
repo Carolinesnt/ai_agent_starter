@@ -155,6 +155,12 @@ class HttpClient:
             p = '/' + p
         url = f"{self.base_url}{p}"
         headers = {"Accept": "application/json"}
+        # Do not send Authorization on auth/login flows
+        try:
+            if str(bac_type).lower() == 'auth':
+                token = None
+        except Exception:
+            pass
         if token:
             # Use configured header and type
             if self.token_type:

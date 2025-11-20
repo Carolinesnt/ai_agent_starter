@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Tuple
 from collections import Counter
 from .memory import TestCase, Result
-from .utils import has_id_param
+from .utils import has_id_param, normalize_path
 import os
 from pathlib import Path
 
@@ -64,12 +64,59 @@ def _load_status_rules() -> Dict[str, set]:
 
 _STATUS_RULES = _load_status_rules()
 
+
+def _success_statuses_for_method(method: str) -> List[int]:
+    """Return acceptable success HTTP status codes for a given method.
+    Keeps semantics simple and safe without parsing OpenAPI responses.
+    """
+    m = (method or "").strip().upper()
+    mapping = {
+        "GET": [200],
+        "HEAD": [200],
+        "OPTIONS": [200],
+        "POST": [200, 201, 202],
+        "PUT": [200, 204],
+        "PATCH": [200, 204],
+        "DELETE": [200, 204],
+    }
+    # Fallback: treat common 2xx as success
+    return mapping.get(m, [200, 201, 202, 204])
+
 def _policy_allowed_endpoints(policy, role: str):
     rules = policy.get("rbac_rules", {})
     role_rules = rules.get(role) or rules.get(str(role)) or {}
     allowed = set(role_rules.get("allowed_endpoints", []) or [])
     critical_deny = set(role_rules.get("critical_deny", []) or [])
     return allowed, critical_deny
+
+def _match_endpoint_pattern(method: str, path: str, pattern: str) -> bool:
+    """Return True if METHOD:path matches METHOD:/path with placeholders in pattern.
+    Pattern examples: "GET:/user/{user_id}", "POST:/role/{id_role}/permissions"
+    """
+    try:
+        if not isinstance(pattern, str) or ':' not in pattern:
+            return False
+        pm, pp = pattern.split(':', 1)
+        if str(pm).strip().upper() != str(method).strip().upper():
+            return False
+        p = normalize_path(pp)
+        # Escape regex special chars except placeholder braces
+        import re
+        # Replace placeholders {...} with segment matcher (no slash)
+        rx = re.sub(r"\{[^}]+\}", r"[^/]+", re.escape(p).replace(r"\{", "{").replace(r"\}", "}"))
+        # Ensure full path match
+        return re.fullmatch(rx, normalize_path(path)) is not None
+    except Exception:
+        return False
+
+def _in_endpoints(method: str, path: str, patterns: set) -> bool:
+    for pat in list(patterns or []):
+        try:
+            if _match_endpoint_pattern(method, path, pat):
+                return True
+        except Exception:
+            continue
+    return False
 
 def _is_resource_scoped_endpoint(path: str) -> bool:
     """
@@ -121,35 +168,48 @@ def expected_status(policy, tc: TestCase) -> Dict[str, Any]:
                     exp = True
                     break
             # Deny may surface as 401/403 or 404 (not-found for other user's resource)
-            return {"status_in":[200], "status_not_in":[401,403,404]} if exp else {"status_in":[401,403,404], "status_not_in":[200]}
+            ok = _success_statuses_for_method(tc.method)
+            return {"status_in": ok, "status_not_in":[401,403,404]} if exp else {"status_in":[401,403,404], "status_not_in": ok}
     # Format B: rbac_rules with allowed_endpoints per-role (assume self allowed, other denied)
     if "rbac_rules" in policy:
-        key = f"{tc.method.upper()}:{tc.path}"
         allowed, critical_deny = _policy_allowed_endpoints(policy, tc.role)
         # Fetch role permissions (if any) to infer admin-wide access
         role_rules = (policy.get("rbac_rules", {}) or {}).get(tc.role) or {}
         perms = set(role_rules.get("permissions", []) or [])
-        if key in critical_deny:
+        if _in_endpoints(tc.method, tc.path, critical_deny):
             return {"status_in":[401,403,404], "status_not_in":[200]}
-        if key in allowed:
+        if _in_endpoints(tc.method, tc.path, allowed):
+            # If role has 'rbac_admin', treat access as allowed regardless of self/other for allowed endpoints
+            if "rbac_admin" in perms:
+                ok = _success_statuses_for_method(tc.method)
+                return {"status_in": ok, "status_not_in":[401,403]}
+
             # Check if endpoint is resource-scoped (self-only access pattern)
             is_resource_scoped = _is_resource_scoped_endpoint(tc.path)
-            
-            # If endpoint is resource-scoped, only allow access when self_access=True
-            if is_resource_scoped:
-                # For resource-scoped endpoints (e.g., /attachments/{item_id}):
-                # - self_access=True (baseline test with own resource) → expect 200
-                # - self_access=False (IDOR test with other's resource) → expect 403/404
-                return {"status_in":[200], "status_not_in":[401,403]} if tc.self_access else {"status_in":[401,403,404], "status_not_in":[200]}
-            
+
             # If endpoint is not resource-owner specific (no {id}-like), allow for both self/other
-            # Or if role has rbac_admin permission, treat access as allowed regardless of self/other
-            if (not has_id_param(tc.path)) or ("rbac_admin" in perms):
-                return {"status_in":[200], "status_not_in":[401,403]}
-            # Otherwise, self allowed; other should be denied (IDOR)
-            return {"status_in":[200], "status_not_in":[401,403]} if tc.self_access else {"status_in":[401,403,404], "status_not_in":[200]}
+            if not has_id_param(tc.path):
+                ok = _success_statuses_for_method(tc.method)
+                return {"status_in": ok, "status_not_in":[401,403]}
+
+            # For resource-scoped endpoints (e.g., /attachments/{item_id}, change-request detail):
+            # - self_access=True (baseline, own resource) → expect 200
+            # - self_access=False (IDOR, other's resource) → expect 403/404
+            if is_resource_scoped:
+                ok = _success_statuses_for_method(tc.method)
+                return {"status_in": ok, "status_not_in":[401,403]} if tc.self_access else {"status_in":[401,403,404], "status_not_in": ok}
+
+            # Default: if has id param and no admin privilege, allow only self
+            ok = _success_statuses_for_method(tc.method)
+            return {"status_in": ok, "status_not_in":[401,403]} if tc.self_access else {"status_in":[401,403,404], "status_not_in": ok}
+        # If endpoint not explicitly allowed or critically denied for this role,
+        # follow least-privilege: treat as denied by default.
+        ok = _success_statuses_for_method(tc.method)
+        return {"status_in":[401,403,404], "status_not_in": ok}
     # default: unknown
-    return {"status_in":[200,401,403], "status_not_in":[]}
+    # Conservative default: treat as denied unless explicitly allowed
+    ok = _success_statuses_for_method(tc.method)
+    return {"status_in":[401,403,404], "status_not_in": ok}
 
 def classify(exp: Dict[str, Any], actual_status: int) -> str:
     # 5xx -> system stability/error, do not treat as BAC finding
@@ -177,8 +237,13 @@ def classify(exp: Dict[str, Any], actual_status: int) -> str:
             return "TP_ALLOW"  # diizinkan sesuai harapan (untuk kasus self/role sah)
     else:
         # Tidak sesuai ekspektasi
-        if actual_status == 200:
-            return "FN"  # seharusnya ditolak tapi lolos -> celah
+        try:
+            sc = int(actual_status)
+        except Exception:
+            sc = actual_status
+        # Any 2xx where deny expected -> FN (vulnerability)
+        if 200 <= int(sc) < 300:
+            return "FN"
         else:
             return "FP"  # seharusnya diizinkan tapi ditolak
 

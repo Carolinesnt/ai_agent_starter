@@ -1,13 +1,13 @@
 ﻿base_url: "http://127.0.0.1:8000/"
-timeout_s: 20
-retries: 1
+timeout_s: 45
+retries: 2
 depth: 1
 mode: "development"
 concurrency: 2
 artifacts_dir: "ai_agent/runs/artifacts"
 log_dir: "ai_agent/runs/logs"
 dry_run: false
-request_delay_ms: 1000 
+request_delay_ms: 250 
 
 # LLM features (privacy-first):
 llm:

@@ -132,6 +132,15 @@ def _discover_ids(http: HttpClient, auth: AuthManager, openapi: dict, memory: Me
     paths = openapi.get('paths', {}) if isinstance(openapi, dict) else {}
     # Candidates: GET endpoints ending with a single placeholder, e.g., /resource/{id_something}
     candidates = []
+    # Precompute available GET collection paths from OpenAPI for validation
+    openapi_get_paths = set()
+    try:
+        for _p, _methods in (openapi.get('paths', {}) or {}).items():
+            if (_methods or {}).get('get') or (_methods or {}).get('GET'):
+                openapi_get_paths.add(normalize_path(_p))
+    except Exception:
+        pass
+
     for p, methods in paths.items():
         get_meta = (methods or {}).get('get') or (methods or {}).get('GET')
         if not get_meta:
@@ -147,7 +156,25 @@ def _discover_ids(http: HttpClient, auth: AuthManager, openapi: dict, memory: Me
         list_path = re.sub(r"/\{[^}/]+\}$", "", p)
         if list_path == p or not list_path:
             continue
-        candidates.append({"detail_path": normalize_path(p), "list_path": normalize_path(list_path), "placeholder": placeholder})
+        # Validate list_path exists in OpenAPI; if not, try plural/singular variants
+        nl = normalize_path(list_path)
+        valid_list = nl in openapi_get_paths
+        if not valid_list:
+            try:
+                # plural heuristic: /permission -> /permissions
+                if not nl.endswith('s') and (nl + 's') in openapi_get_paths:
+                    nl = nl + 's'
+                    valid_list = True
+                # singular heuristic: /roles -> /role (rare)
+                elif nl.endswith('s') and nl[:-1] in openapi_get_paths:
+                    nl = nl[:-1]
+                    valid_list = True
+            except Exception:
+                pass
+        if not valid_list:
+            # skip invalid list base to avoid 404 spam
+            continue
+        candidates.append({"detail_path": normalize_path(p), "list_path": nl, "placeholder": placeholder})
 
     # De-duplicate by list_path
     seen = set()
@@ -354,12 +381,52 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
         if mut_type == "IDOR" or mut.get("variant") == "other":
             return 'horizontal'
         if not tc.self_access:
-            return 'horizontal'
+            # Prefer horizontal only for resource-scoped endpoints (with {id}-like)
+            try:
+                from ai_agent.core.utils import has_id_param, normalize_path
+                if has_id_param(tc.path):
+                    return 'horizontal'
+            except Exception:
+                pass
+            # Otherwise treat as vertical escalation to an endpoint outside own scope
+            return 'vertical'
         
         # Check for no-auth attempts (treat as vertical since it's trying to bypass auth)
         if mut.get("no_auth") or mut.get("without_auth") or mut_type in ("NO_AUTH", "NEGATIVE_AUTH"):
             return 'vertical'
-        
+
+        # Policy-aware classification: if endpoint is not allowed for this role
+        # but allowed for another role (e.g., admin), consider it vertical.
+        try:
+            def _match_pattern(method: str, path: str, pattern: str) -> bool:
+                if not isinstance(pattern, str) or ':' not in pattern:
+                    return False
+                pm, pp = pattern.split(':', 1)
+                if str(pm).strip().upper() != str(method).strip().upper():
+                    return False
+                import re
+                from ai_agent.core.utils import normalize_path as _norm
+                p = _norm(pp)
+                rx = re.sub(r"\{[^}]+\}", r"[^/]+", re.escape(p).replace(r"\{", "{").replace(r"\}", "}"))
+                return re.fullmatch(rx, _norm(path)) is not None
+
+            rules = (policy or {}).get('rbac_rules', {}) if isinstance(policy, dict) else {}
+            my_allowed = set((rules.get(tc.role) or {}).get('allowed_endpoints') or [])
+            # Allowed by other roles?
+            other_allowed = set()
+            for rname, rdef in rules.items():
+                if rname == tc.role:
+                    continue
+                for p in (rdef or {}).get('allowed_endpoints', []) or []:
+                    other_allowed.add(p)
+            # If not allowed for me but allowed for someone else → vertical
+            me_ok = any(_match_pattern(tc.method, tc.path, pat) for pat in my_allowed)
+            other_ok = any(_match_pattern(tc.method, tc.path, pat) for pat in other_allowed)
+            if (not me_ok) and other_ok:
+                return 'vertical'
+        except Exception:
+            pass
+
         # Default baseline (self access, normal operations)
         return 'baseline'
 
@@ -394,6 +461,7 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
         owner_role = as_role if self_access else (f"{as_role}_2" if hasattr(auth, 'roles') and f"{as_role}_2" in auth.roles else as_role)
         # Compute default user-centric target id for fallback
         target_id = _target_user_id(as_role, self_access)
+        path_lower_ctx = (path or "").lower()
 
         def repl(m):
             name = m.group(1)
@@ -404,9 +472,18 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
             rid = _lookup_resource_id(owner_role, name)
             if rid is not None:
                 return str(rid)
-            # If generally id-like, fallback to user target id
-            if 'id' in name.lower():
-                return str(target_id)
+            # If generally id-like, only fallback to user target id when placeholder is user-related
+            nl = name.lower()
+            if 'id' in nl:
+                # Fallback only for explicit user-related placeholders
+                if nl in ("user_id", "employee_id") or ("user" in nl or "employee" in nl):
+                    return str(target_id)
+                # Also allow generic {id} when path denotes a user/employee resource context
+                if nl == 'id' and ("/user" in path_lower_ctx or "/employee" in path_lower_ctx):
+                    return str(target_id)
+                # Otherwise, avoid substituting unrelated ids (e.g., item_id) with user_id
+                # Leave placeholder as-is to avoid false positives; server likely returns 404 (treated as NOT_FOUND, not FP)
+                return m.group(0)
             return m.group(0)
 
         return re.sub(r"\{([^}/]+)\}", repl, path)
@@ -761,33 +838,72 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
                 def _minimal(schema: dict):
                     if not isinstance(schema, dict):
                         return None
-                    # Resolve simple allOf/oneOf first element
+                    # Prefer explicit example/default
+                    if 'example' in schema and schema['example'] is not None:
+                        return schema['example']
+                    if 'default' in schema and schema['default'] is not None:
+                        return schema['default']
+                    # Resolve simple allOf/oneOf/anyOf first element
                     for comb in ('allOf','oneOf','anyOf'):
                         if isinstance(schema.get(comb), list) and schema.get(comb):
                             return _minimal(schema.get(comb)[0])
                     t = (schema.get('type') or '').lower()
                     if '$ref' in schema:
-                        # no resolver; fallback to object
+                        # no resolver; best effort: treat as object
                         t = t or 'object'
                     if t == 'object' or ('properties' in schema):
                         props = schema.get('properties') or {}
                         req = schema.get('required') or []
                         body = {}
                         for k in req:
-                            pt = (props.get(k, {}).get('type') or '').lower()
+                            prop = props.get(k, {}) or {}
+                            # enum
+                            if isinstance(prop.get('enum'), list) and prop['enum']:
+                                body[k] = prop['enum'][0]
+                                continue
+                            # example/default
+                            if 'example' in prop:
+                                body[k] = prop['example']
+                                continue
+                            if 'default' in prop:
+                                body[k] = prop['default']
+                                continue
+                            pt = (prop.get('type') or '').lower()
+                            fmt = (prop.get('format') or '').lower()
                             if pt == 'string' or pt == '':
-                                body[k] = "test"
+                                if fmt == 'email':
+                                    body[k] = 'user@example.com'
+                                elif fmt in ('date-time','datetime'):
+                                    body[k] = '2024-01-01T00:00:00Z'
+                                elif fmt == 'date':
+                                    body[k] = '2024-01-01'
+                                else:
+                                    body[k] = "test"
                             elif pt in ('integer','number'):
                                 body[k] = 1
                             elif pt == 'boolean':
                                 body[k] = False
                             elif pt == 'array':
-                                body[k] = []
+                                item_schema = prop.get('items') or {}
+                                itm = _minimal(item_schema)
+                                body[k] = [itm if itm is not None else 1]
                             elif pt == 'object':
-                                body[k] = {}
+                                sub = _minimal(prop) or {}
+                                body[k] = sub if isinstance(sub, dict) else {}
                             else:
                                 body[k] = "test"
                         return body or None
+                    if t == 'array':
+                        itm = _minimal(schema.get('items') or {})
+                        return [itm if itm is not None else 1]
+                    if t == 'string':
+                        return "test"
+                    if t in ('integer','number'):
+                        return 1
+                    if t == 'boolean':
+                        return False
+                    if t == 'null':
+                        return None
                     return None
                 schema = _req_schema(openapi, tc.path, tc.method)
                 if not schema and isinstance(adjustments, dict):

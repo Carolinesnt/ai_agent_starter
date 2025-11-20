@@ -120,7 +120,13 @@ def save_json_report(path: str, results: List[Result], policy, tests: List[TestC
                 f.write(f"### {emoji} {title} ({len(items)})\n\n")
                 cap = 200
                 for it in items[:cap]:
-                    f.write(f"- `{it['method']} {it['path']}` [{it['role']}] → {it['status']}\n")
+                    try:
+                        sa = it.get('self_access')
+                        so = 'self' if sa is True else ('other' if sa is False else '')
+                    except Exception:
+                        so = ''
+                    suffix = f" {so}" if so else ''
+                    f.write(f"- `{it['method']} {it['path']}` [{it['role']}{suffix}] → {it['status']}\n")
                 if len(items) > cap:
                     f.write(f"\n... and {len(items)-cap} more\n\n")
                 else:

@@ -90,14 +90,16 @@ class AuthManager:
         else:
             ep = info.get("endpoint") or "/auth/login"
             payload = dict(info.get("payload", {}) or {})
-            # Always prefer environment variables if provided
+            # Always prefer environment variables if provided (single source of truth)
             env_user, env_pass = self._env_credentials_for_role(role)
-            env_email = self._env_email_for_role(role)
+            # Require env creds; do not fall back to config if missing
+            if not (env_user and env_pass):
+                raise ValueError(f"Missing credentials in environment for role {role}. Set {self._env_key_base(role)}_USERNAME and {self._env_key_base(role)}_PASSWORD in .env")
             # Determine which user field name to use
             user_field = info.get("user_field") or self._infer_user_field_from_openapi(info.get("endpoint")) or self.global_user_field or "username"
             pass_field = self._infer_pass_field_from_openapi(info.get("endpoint")) or self.global_pass_field or "password"
-            # Determine user value (prefer email if provided)
-            user_value = env_email or env_user or payload.get("username") or payload.get("email")
+            # Determine user value strictly from env (may be email or username)
+            user_value = env_user or payload.get("username") or payload.get("email")
             # If the value looks like an email, prefer 'email' as the field name
             try:
                 if isinstance(user_value, str) and ('@' in user_value) and user_field.lower() != 'email':
@@ -116,10 +118,22 @@ class AuthManager:
             include_uid = bool(self._global.get("include_user_id_in_login") or info.get("include_user_id_in_login"))
             if not include_uid and "user_id" in payload:
                 payload.pop("user_id", None)
+            # Diagnostics: record credential source (without values)
+            used_env_user = bool(env_user)
+            used_env_pass = bool(env_pass)
             resp = self.http_login.request(
                 "POST", ep, token=None, json_body=payload,
                 role=f"Auth_{role}", bac_type="auth",
-                test_context={"login_role": role, "payload_keys": list(payload.keys())}
+                test_context={
+                    "login_role": role,
+                    "payload_keys": list(payload.keys()),
+                    "creds_source": {
+                        "user_from_env": used_env_user,
+                        "pass_from_env": used_env_pass,
+                        "user_field": user_field,
+                        "pass_field": pass_field,
+                    }
+                }
             )
             # If login failed, raise early with context
             try:
@@ -226,6 +240,7 @@ class AuthManager:
         fallback_map = {
             "ADMIN_HC": ("ADMIN_USERNAME", "ADMIN_PASSWORD"),
             "EMPLOYEE": ("EMPLOYEE_USERNAME", "EMPLOYEE_PASSWORD"),
+            "EMPLOYEE_2": ("EMPLOYEE_2_USERNAME", "EMPLOYEE_2_PASSWORD"),
         }
         user_key = f"{base}_USERNAME"
         pass_key = f"{base}_PASSWORD"
@@ -236,15 +251,19 @@ class AuthManager:
         if aliases:
             cand_users.insert(0, aliases[0])
             cand_pass.insert(0, aliases[1])
+        # Additional tolerant variants for password key names
+        cand_pass.extend([f"{base}_PASS", f"{base}_PWD"])  # tolerate PASS/PWD
         env_user = None
         env_pass = None
         for k in cand_users:
-            if os.getenv(k):
-                env_user = os.getenv(k)
+            v = os.getenv(k)
+            if v is not None and str(v) != "":
+                env_user = v
                 break
         for k in cand_pass:
-            if os.getenv(k):
-                env_pass = os.getenv(k)
+            v = os.getenv(k)
+            if v is not None and str(v) != "":
+                env_pass = v
                 break
         return env_user, env_pass
 

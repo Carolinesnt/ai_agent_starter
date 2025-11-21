@@ -261,6 +261,212 @@ class HttpClient:
                 time.sleep(delay)
         raise last_exc
 
+    def smart_request(self, method: str, path: str, token: Optional[str], openapi: Dict[str, Any], 
+                      params=None, json_body=None, discovered_ids: Dict[str, Any] = None,
+                      extra_headers: Optional[Dict[str, str]] = None, role: str = None, 
+                      bac_type: str = None, test_context: Dict[str, Any] = None, max_retries: int = 2) -> Dict[str, Any]:
+        """
+        Smart HTTP request with automatic payload generation and adaptive retry on 400 errors.
+        
+        This method:
+        1. If json_body is None and method requires body (POST/PUT/PATCH), auto-generate from OpenAPI schema
+        2. Execute request normally
+        3. If 400 error, analyze response and retry with adjusted payload
+        4. Return final response with metadata about payload generation
+        
+        Args:
+            method: HTTP method
+            path: API path
+            token: Auth token
+            openapi: OpenAPI specification dict
+            params: Query parameters (optional)
+            json_body: Request body (if None, will auto-generate for POST/PUT/PATCH)
+            discovered_ids: Dict of discovered resource IDs for payload generation
+            extra_headers: Additional headers
+            role: User role
+            bac_type: BAC test type
+            test_context: Test context metadata
+            max_retries: Max retry attempts for 400 errors (default: 2)
+        
+        Returns:
+            Response dict with additional 'payload_info' metadata
+        """
+        from ai_agent.core.utils import extract_request_schema, generate_payload_from_schema
+        
+        # Flag to track if we generated the payload
+        payload_generated = False
+        original_body = json_body
+        schema_info = None
+        
+        # Special handling for /auth/login - inject real credentials from .env
+        if path.rstrip('/').endswith('/auth/login') and method.upper() == 'POST':
+            import os
+            # Direct mapping for known roles to .env keys
+            if role:
+                role_lower = role.lower()
+                username = None
+                password = None
+                
+                # Map role to corresponding .env variables
+                if 'admin' in role_lower:
+                    username = os.getenv("ADMIN_USERNAME")
+                    password = os.getenv("ADMIN_PASSWORD")
+                elif 'employee_2' in role_lower or 'employee2' in role_lower:
+                    username = os.getenv("EMPLOYEE_2_USERNAME")
+                    password = os.getenv("EMPLOYEE_2_PASSWORD")
+                elif 'employee' in role_lower:
+                    username = os.getenv("EMPLOYEE_USERNAME")
+                    password = os.getenv("EMPLOYEE_PASSWORD")
+                
+                if username and password:
+                    # Inject real credentials
+                    if json_body is None:
+                        json_body = {}
+                    if isinstance(json_body, dict):
+                        json_body['email'] = username
+                        json_body['password'] = password
+                        payload_generated = True
+                        print(f"[AUTH] Injected credentials for role {role}: {username}")
+        
+        # Endpoints that should skip smart payload generation
+        skip_endpoints = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout']
+        should_skip = any(path.rstrip('/').endswith(endpoint.rstrip('/')) for endpoint in skip_endpoints)
+        
+        # DEBUG: Check conditions
+        # Auto-generate payload for methods that typically require body (but skip auth endpoints)
+        if json_body is None and method.upper() in ('POST', 'PUT', 'PATCH') and not should_skip:
+            schema_info = extract_request_schema(openapi, method, path)
+            
+            # extract_request_schema returns wrapper with 'schema' key for the actual schema
+            actual_schema = schema_info.get('schema', schema_info) if isinstance(schema_info, dict) else {}
+            has_content = bool(actual_schema and (actual_schema.get('properties') or actual_schema.get('items') or actual_schema.get('type')))
+            
+            # Generate payload if we have usable schema
+            if has_content:
+                # Pass actual schema to generator, not the wrapper
+                json_body = generate_payload_from_schema(actual_schema, discovered_ids)
+                payload_generated = True
+                # Only print compact message
+                schema_type = actual_schema.get('type', 'object')
+                print(f"      [SMART] Auto-generated {schema_type} payload")
+        
+        # Try initial request
+        attempt = 0
+        last_response = None
+        
+        while attempt <= max_retries:
+            try:
+                response = self.request(
+                    method=method,
+                    path=path,
+                    token=token,
+                    params=params,
+                    json_body=json_body,
+                    extra_headers=extra_headers,
+                    role=role,
+                    bac_type=bac_type,
+                    test_context=test_context
+                )
+                
+                last_response = response
+                status_code = response.get('status_code', 0)
+                
+                # Success or non-400 error - return immediately
+                if status_code != 400:
+                    response['payload_info'] = {
+                        'auto_generated': payload_generated,
+                        'original_body': original_body,
+                        'final_body': json_body,
+                        'attempts': attempt + 1,
+                        'schema_available': bool(schema_info) if payload_generated else None
+                    }
+                    return response
+                
+                # Got 400 - try to improve payload if we haven't exhausted retries
+                if attempt < max_retries:
+                    # Analyze error message
+                    error_body = response.get('body', {})
+                    error_msg = str(error_body.get('message') or error_body.get('detail') or '').lower()
+                    
+                    # Try to extract missing field from error message
+                    missing_field = self._extract_missing_field(error_msg)
+                    
+                    if missing_field and isinstance(json_body, dict):
+                        # Add the missing field with a default value
+                        if missing_field not in json_body:
+                            # Try to infer type from field name
+                            if 'id' in missing_field.lower():
+                                json_body[missing_field] = 1  # Default ID
+                            elif 'email' in missing_field.lower():
+                                json_body[missing_field] = "test@example.com"
+                            elif 'name' in missing_field.lower():
+                                json_body[missing_field] = "Test Name"
+                            elif 'status' in missing_field.lower():
+                                json_body[missing_field] = "active"
+                            else:
+                                json_body[missing_field] = "default_value"
+                            
+                            # Retry with updated payload
+                            attempt += 1
+                            continue
+                
+                # If we reach here, either exhausted retries or couldn't fix the issue
+                break
+                
+            except Exception as e:
+                # Network or other errors - don't retry, raise immediately
+                raise e
+        
+        # Return last response with metadata
+        if last_response:
+            last_response['payload_info'] = {
+                'auto_generated': payload_generated,
+                'original_body': original_body,
+                'final_body': json_body,
+                'attempts': attempt + 1,
+                'schema_available': bool(extract_request_schema(openapi, method, path)) if payload_generated else None,
+                'failed_after_retries': True
+            }
+        
+        return last_response or {'status_code': 0, 'body': {}, 'error': 'No response received'}
+    
+    @staticmethod
+    def _extract_missing_field(error_message: str) -> Optional[str]:
+        """
+        Extract missing field name from common error message patterns.
+        
+        Examples:
+        - "field 'email' is required" -> "email"
+        - "Missing required parameter: name" -> "name"
+        - "The field status is required." -> "status"
+        """
+        import re
+        
+        # Pattern 1: field 'xxx' is required
+        match = re.search(r"field\s+['\"]([^'\"]+)['\"].*required", error_message, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        
+        # Pattern 2: Missing required parameter: xxx
+        match = re.search(r"missing.*required.*parameter[:\s]+([a-z_]+)", error_message, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        
+        # Pattern 3: field xxx is required
+        match = re.search(r"field\s+([a-z_]+).*required", error_message, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        
+        # Pattern 4: xxx is required
+        match = re.search(r"([a-z_]+)\s+is\s+required", error_message, re.IGNORECASE)
+        if match:
+            field = match.group(1)
+            # Avoid false positives like "authentication is required"
+            if field not in ['authentication', 'authorization', 'permission', 'access']:
+                return field
+        
+        return None
+
     @staticmethod
     def _safe_json(r):
         try:

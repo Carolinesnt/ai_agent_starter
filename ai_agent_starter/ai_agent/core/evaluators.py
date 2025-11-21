@@ -146,6 +146,19 @@ def _is_resource_scoped_endpoint(path: str) -> bool:
     return False
 
 def expected_status(policy, tc: TestCase) -> Dict[str, Any]:
+    # Public/auth endpoints - always expect success (200)
+    # These endpoints should be accessible regardless of authentication state
+    public_endpoints = [
+        '/auth/login',
+        '/auth/register', 
+        '/auth/refresh',
+        '/auth/logout'
+    ]
+    path_normalized = normalize_path(tc.path)
+    if any(path_normalized == normalize_path(pub) for pub in public_endpoints):
+        ok = _success_statuses_for_method(tc.method)
+        return {"status_in": ok, "status_not_in": [401, 403]}
+    
     # Format A: explicit rules with allow/deny and self semantics
     for rule in policy.get("rules", []):
         if rule.get("method","").upper() == tc.method.upper() and rule.get("path") == tc.path:

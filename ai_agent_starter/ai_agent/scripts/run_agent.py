@@ -87,14 +87,18 @@ def main():
             console.print("⚠️ LLM provider set to OpenAI (or default), but OPENAI_API_KEY is missing. Running in deterministic mode.", style="yellow")
             llm_provider = ''  # force deterministic behavior
         else:
-            console.print("✅ LLM provider: OpenAI", style="green")
+            # Get OpenAI model from env or use default
+            openai_model = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+            console.print(f"✅ LLM provider: OpenAI ({openai_model})", style="green")
     elif llm_provider == 'gemini':
         provider_name = 'gemini'
         if not gemini_key:
             console.print("⚠️ LLM provider is Gemini, but GEMINI_API_KEY is missing. Running in deterministic mode.", style="yellow")
             llm_provider = ''
         else:
-            console.print("✅ LLM provider: Gemini", style="green")
+            # Get Gemini model from env or use default
+            gemini_model = os.getenv('GEMINI_MODEL', 'gemini-1.5-flash')
+            console.print(f"✅ LLM provider: Gemini ({gemini_model})", style="green")
     else:
         console.print(f"⚠️ Unknown LLM provider '{llm_provider}'. Running in deterministic mode.", style="yellow")
     

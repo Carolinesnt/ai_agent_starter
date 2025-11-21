@@ -905,24 +905,31 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
                     if t == 'null':
                         return None
                     return None
-                schema = _req_schema(openapi, tc.path, tc.method)
-                if not schema and isinstance(adjustments, dict):
-                    # Attempt lookup by normalized path (strip numbers -> {id})
-                    try:
-                        templ = re.sub(r"/(\d+)(?:$|/)", "/{id}", tc.path)
-                        schema = _req_schema(openapi, templ, tc.method)
-                    except Exception:
-                        pass
-                json_body = _minimal(schema)
+                # Let smart_request() handle payload generation with random suffixes
+                # to avoid duplicate data issues
+                json_body = None
+                
                 # Special case: change_request draft for PUT flow
                 if '/employee/change-request' in tc.path.lower() and str(tc.method).upper() == 'POST':
+                    schema = _req_schema(openapi, tc.path, tc.method)
+                    if not schema:
+                        try:
+                            templ = re.sub(r"/(\d+)(?:$|/)", "/{id}", tc.path)
+                            schema = _req_schema(openapi, templ, tc.method)
+                        except Exception:
+                            pass
+                    json_body = _minimal(schema)
                     if isinstance(json_body, dict) and 'submit' in json_body:
                         json_body['submit'] = False
+                
                 if mut.get('json') and isinstance(mut.get('json'), dict):
                     # Allow explicit override from mutation
                     json_body = mut.get('json')
             except Exception:
                 json_body = None
+
+        # DEBUG: Print json_body value before smart_request
+        print(f"[DEBUG-ORCHESTRATOR] {tc.method} {path} - json_body type: {type(json_body)}, value: {json_body}")
 
         # Guard for sensitive DELETE based on adjustments
         if str(tc.method).upper() == 'DELETE' and isinstance(adjustments, dict):
@@ -949,22 +956,45 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
         except Exception:
             pass
 
-        resp = http.request(
-            tc.method, 
-            path, 
+        # Use smart_request for intelligent payload generation and adaptive retry
+        resp = http.smart_request(
+            method=tc.method, 
+            path=path, 
             token=token, 
+            openapi=openapi,
             params=params, 
             extra_headers=extra_headers,
             json_body=json_body,
+            discovered_ids=memory.resource_ids.get(tc.role, {}),
             role=tc.role,
             bac_type=bac_type,
-            test_context=test_context
+            test_context=test_context,
+            max_retries=2  # Retry up to 2 times on 400 errors
         )
         import time as _t
         memory.record_result(Result(tc=tc, status_code=resp["status_code"], body=resp.get("body", {}), ts=_t.time(), artifact=resp.get("artifact")))
         # Realtime progress: after request
         try:
-            print(f"[RES] role={tc.role} | type={bac_type.upper()} | {tc.method} {path} -> {resp['status_code']} | artifact={resp.get('artifact')}")
+            payload_info = resp.get('payload_info', {})
+            status = resp['status_code']
+            
+            # Status color indicator
+            if status >= 200 and status < 300:
+                status_marker = "✓"
+            elif status >= 400 and status < 500:
+                status_marker = "✗"
+            else:
+                status_marker = "•"
+            
+            # Compact markers
+            markers = []
+            if payload_info.get('auto_generated'):
+                markers.append("AUTO")
+            if payload_info.get('attempts', 1) > 1:
+                markers.append(f"RETRY×{payload_info.get('attempts')}")
+            marker_str = f" [{','.join(markers)}]" if markers else ""
+            
+            print(f"[RES] {status_marker} {status:3}{marker_str}")
         except Exception:
             pass
         # Optional slow mode between requests

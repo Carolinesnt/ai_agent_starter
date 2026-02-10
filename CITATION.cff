@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+title: "BYE BAC: AI-Powered Broken Access Control Detection Agent"
+message: "If you use this software in your research, please cite it as below."
+type: software
+authors:
+  - family-names: Susanto
+    given-names: Caroline
+    orcid: "https://orcid.org/0000-0000-0000-0000"  # Replace with your ORCID if you have one
+repository-code: "https://github.com/Carolinesnt/ai_agent_starter"
+url: "https://github.com/Carolinesnt/ai_agent_starter"
+abstract: >
+  An automated AI agent designed to detect Broken Access Control (BAC) 
+  vulnerabilities in REST APIs that implement Role-Based Access Control (RBAC). 
+  This tool leverages Large Language Models (LLM) to perform intelligent and 
+  comprehensive security testing, including BOLA, IDOR, Privilege Escalation, 
+  and RBAC policy violations detection.
+keywords:
+  - security testing
+  - broken access control
+  - BOLA
+  - IDOR
+  - RBAC
+  - API security
+  - OWASP
+  - artificial intelligence
+  - vulnerability detection
+  - automated testing
+license: MIT
+version: 1.0.0
+date-released: "2025-02-08"

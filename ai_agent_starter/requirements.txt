@@ -1,0 +1,10 @@
+# requirements.txt
+openai>=1.12.0
+requests>=2.31.0
+pyyaml>=6.0
+pandas>=2.0.0
+python-dotenv>=1.0.0
+rich>=13.0.0  # console output
+google-generativeai>=0.8.0  # optional, for Gemini provider (supports newer models)
+pyfiglet>=0.8.post1  # ASCII banner
+

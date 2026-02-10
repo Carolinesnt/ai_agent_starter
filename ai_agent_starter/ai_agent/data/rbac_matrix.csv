@@ -1,0 +1,88 @@
+role_name,permission_code,permission_group,permission_desc
+Employee,request_history_and_status,Request Management,Permission to request history and status
+Employee,attachment,Request Management,Permission to attach document for update personal data
+Employee,export_pdf,Data Management,Permission to export personal data
+Employee,update_data_personal,Data Management,Permission to update personal data
+Employee,view_own_data,Data Management,Permission to view own personal data
+Employee,submit_request,Request Management,Permission to submit new request
+Employee,cancel_request,Request Management,Permission to cancel pending request
+Manager,request_history_and_status,Request Management,Permission to request history and status
+Manager,attachment,Request Management,Permission to attach document for update personal data
+Manager,export_pdf,Data Management,Permission to export personal data
+Manager,update_data_personal,Data Management,Permission to update personal data
+Manager,view_own_data,Data Management,Permission to view own personal data
+Manager,view_team_data,Data Management,Permission to view team members data
+Manager,approve_request,Request Management,Permission to approve team requests
+Manager,reject_request,Request Management,Permission to reject team requests
+Manager,bulk_export,Data Management,Permission to export multiple records
+Manager,generate_report,Reporting,Permission to generate team reports
+Supervisor,request_history_and_status,Request Management,Permission to request history and status
+Supervisor,attachment,Request Management,Permission to attach document for update personal data
+Supervisor,export_pdf,Data Management,Permission to export personal data
+Supervisor,update_data_personal,Data Management,Permission to update personal data
+Supervisor,view_own_data,Data Management,Permission to view own personal data
+Supervisor,view_team_data,Data Management,Permission to view team members data
+Supervisor,approve_request,Request Management,Permission to approve subordinate requests
+Supervisor,monitor_performance,Monitoring,Permission to monitor team performance
+HR_Staff,request_history_and_status,Request Management,Permission to request history and status
+HR_Staff,view_all_data,Data Management,Permission to view all employee data
+HR_Staff,update_employee_data,Data Management,Permission to update employee data
+HR_Staff,export_pdf,Data Management,Permission to export personal data
+HR_Staff,bulk_export,Data Management,Permission to export multiple records
+HR_Staff,process_request,Request Management,Permission to process HR requests
+HR_Staff,manage_documents,Document Management,Permission to manage employee documents
+HR_Staff,generate_report,Reporting,Permission to generate HR reports
+HR_Staff,view_salary_data,Data Management,Permission to view salary information
+Admin_HC,manage_consent,Consent Management,Permission to manage consent
+Admin_HC,rbac_admin,User Management,Allows full access to manage roles permissions and user access
+Admin_HC,request_history_and_status,Request Management,Permission to request history and status
+Admin_HC,view_all_data,Data Management,Permission to view all employee data
+Admin_HC,update_all_data,Data Management,Permission to update all employee data
+Admin_HC,delete_data,Data Management,Permission to delete employee data
+Admin_HC,manage_users,User Management,Permission to manage user accounts
+Admin_HC,assign_roles,User Management,Permission to assign roles to users
+Admin_HC,audit_logs,Security,Permission to view audit logs
+Admin_HC,system_config,System Management,Permission to configure system settings
+Admin_HC,bulk_operations,Data Management,Permission to perform bulk operations
+IT_Admin,system_config,System Management,Permission to configure system settings
+IT_Admin,manage_users,User Management,Permission to manage user accounts
+IT_Admin,assign_roles,User Management,Permission to assign roles to users
+IT_Admin,audit_logs,Security,Permission to view audit logs
+IT_Admin,backup_restore,System Management,Permission to backup and restore data
+IT_Admin,security_settings,Security,Permission to manage security settings
+IT_Admin,integration_management,System Management,Permission to manage system integrations
+IT_Admin,database_access,System Management,Permission to access database directly
+Compliance_Officer,audit_logs,Security,Permission to view audit logs
+Compliance_Officer,view_all_data,Data Management,Permission to view all employee data
+Compliance_Officer,generate_compliance_report,Reporting,Permission to generate compliance reports
+Compliance_Officer,data_privacy_review,Compliance,Permission to review data privacy practices
+Compliance_Officer,policy_management,Compliance,Permission to manage compliance policies
+Finance_Manager,view_salary_data,Data Management,Permission to view salary information
+Finance_Manager,update_salary_data,Data Management,Permission to update salary information
+Finance_Manager,generate_financial_report,Reporting,Permission to generate financial reports
+Finance_Manager,budget_management,Finance,Permission to manage budget allocations
+Finance_Manager,payroll_processing,Finance,Permission to process payroll
+Guest,view_public_info,Data Management,Permission to view public information only
+Guest,read_announcements,Communication,Permission to read company announcements
+Intern,request_history_and_status,Request Management,Permission to request history and status
+Intern,view_own_data,Data Management,Permission to view own personal data
+Intern,submit_request,Request Management,Permission to submit new request
+Intern,view_training_materials,Training,Permission to view training materials
+Contractor,request_history_and_status,Request Management,Permission to request history and status
+Contractor,view_own_data,Data Management,Permission to view own personal data
+Contractor,submit_request,Request Management,Permission to submit new request
+Contractor,update_data_personal,Data Management,Permission to update personal data
+Contractor,view_project_data,Project Management,Permission to view assigned project data
+Security_Admin,audit_logs,Security,Permission to view audit logs
+Security_Admin,security_settings,Security,Permission to manage security settings
+Security_Admin,access_control,Security,Permission to manage access control
+Security_Admin,incident_response,Security,Permission to respond to security incidents
+Security_Admin,threat_monitoring,Security,Permission to monitor security threats
+Data_Analyst,view_all_data,Data Management,Permission to view all employee data
+Data_Analyst,generate_report,Reporting,Permission to generate analytics reports
+Data_Analyst,export_analytics,Reporting,Permission to export analytics data
+Data_Analyst,data_visualization,Reporting,Permission to create data visualizations
+Training_Coordinator,view_employee_training,Training,Permission to view employee training records
+Training_Coordinator,manage_training,Training,Permission to manage training programs
+Training_Coordinator,assign_training,Training,Permission to assign training to employees
+Training_Coordinator,generate_training_report,Reporting,Permission to generate training reports

@@ -1,0 +1,109 @@
+# config/policy.yaml
+rbac_rules:
+  Admin_HC:
+    permissions:
+      - manage_consent
+      - rbac_admin
+      - request_history_and_status
+    allowed_endpoints:
+      #request_history_and_status
+      - GET:/employee/change-request
+      - GET:/employee/change-request/{id_change_request}
+      - GET:/employee/update-histories/{id_change_request}
+
+      #manage_consent
+      - GET:/employee/consents/active
+      - GET:/employee/consents/status
+      - POST:/employee/consents
+      - PUT:/employee/consents/{id_consent}
+      - POST:/employee/consents/approve
+      - GET:/employee/consents/list
+
+      #rbac_admin
+      - GET:/roles
+      - POST:/roles
+      - GET:/role/{id_role}
+      - PUT:/role/{id_role}
+      - DELETE:/role/{id_role}
+      - POST:/role/{id_role}/permissions
+      - GET:/permissions
+      - POST:/permissions
+      - PUT:/permission/{id_permission}
+      - DELETE:/permission/{id_permission}
+      - GET:/users
+      - GET:/user/{user_id}
+      - POST:/user/{user_id}/roles
+
+    # denied_endpoints:
+    #   #update_data_personal
+    #   - POST:/employee/change-request
+    #   - PUT:/employee/change-request/{id_change_request}
+    #   - DELETE:/employee/change-request/{id_change_request}
+
+    #   #export_pdf
+    #   - POST:/employee/pdf-export
+
+    #   #attachment
+    #   - GET:/employee/attachments/parent/{parent_id}/item/{item_id}/preview
+    #   - GET:/employee/attachments/parent/{parent_id}/item/{item_id}/download
+    #   - GET:/employee/attachments/{item_id}/preview
+    #   - GET:/employee/attachments/{item_id}/download
+    #   - GET:/employee/attachments/{item_id}/information
+    #   - DELETE:/employee/attachments/{item_id}/delete
+    #   - POST:/employee/attachments/change-request/{id_change_request}
+
+    critical_deny:
+      - DELETE:/users/{user_id}
+
+  Employee:
+    permissions:
+      - request_history_and_status
+      - attachment
+      - export_pdf
+      - update_data_personal
+    allowed_endpoints:
+      #request_history_and_status
+      - GET:/employee/change-request
+      - GET:/employee/change-request/{id_change_request}
+      - GET:/employee/update-histories/{id_change_request}
+
+      #attachment
+      - GET:/employee/attachments/parent/{parent_id}/item/{item_id}/preview
+      - GET:/employee/attachments/parent/{parent_id}/item/{item_id}/download
+      - GET:/employee/attachments/{item_id}/preview
+      - GET:/employee/attachments/{item_id}/download
+      - GET:/employee/attachments/{item_id}/information
+      - DELETE:/employee/attachments/{item_id}/delete
+      - POST:/employee/attachments/change-request/{id_change_request}
+
+      #export_pdf
+      - POST:/employee/pdf-export
+
+      #update_data_personal
+      - POST:/employee/change-request
+      - PUT:/employee/change-request/{id_change_request}
+      - DELETE:/employee/change-request/{id_change_request}
+
+    # denied_endpoints:
+    #   #manage_consent
+    #   - GET:/employee/consents/active
+    #   - GET:/employee/consents/status
+    #   - POST:/employee/consents
+    #   - PUT:/employee/consents/{id_consent}
+    #   - POST:/employee/consents/approve
+    #   - GET:/employee/consents/list
+
+    #   #rbac_admin
+    #   - GET:/roles
+    #   - POST:/roles
+    #   - GET:/role/{role_id}
+    #   - PUT:/role/{role_id}
+    #   - DELETE:/role/{role_id}
+    #   - POST:/role/{role_id}/permissions
+    #   - GET:/permissions
+    #   - POST:/permissions
+    #   - PUT:/permissions/{id_permission}
+    #   - DELETE:/permissions/{id_permission}
+    #   - GET:/users
+    #   - GET:/user/{user_id}
+    #   - POST:/user/{user_id}/roles

@@ -1,0 +1,42 @@
+﻿base_url: "http://127.0.0.1:8000/"
+timeout_s: 45
+retries: 2
+depth: 1
+mode: "development"
+concurrency: 2
+artifacts_dir: "ai_agent/runs/artifacts"
+log_dir: "ai_agent/runs/logs"
+dry_run: false
+request_delay_ms: 250 
+
+# LLM features (privacy-first):
+llm:
+  discovery_enabled: true       # allow LLM to assist ID discovery
+  triage_enabled: true          # summarize findings via LLM (redacted input)
+  followups_enabled: true       # propose additional follow-up tests via LLM
+  redact_enabled: true          # redact content before sending to LLM
+  redact_max_chars: 1000        # cap any text snippets sent to LLM
+
+planning:
+  plan_with_llm: true
+  policy_first: false           # test berdasarkan OpenAPI (semua endpoint), bukan hanya policy
+  include_all_endpoints: true   # sertakan semua endpoint (tidak hanya yang {id})
+  max_endpoints: all            # tanpa batas (gunakan semua)
+
+# Auto-discovery of resource IDs via list endpoints (simple patterns only)
+discovery:
+  enabled: true
+  extended: true
+  max_per_role: 10
+
+# Optional: seed fixtures to create resources and capture IDs per role
+# fixtures:
+#   - role: "Employee"
+#     method: "POST"
+#     path: "/employee/change-request"
+#     json: { }
+#     id_json_path: "data.id_change_request"  # path to ID in response JSON
+#     store_as: "change_request"
+
+
+

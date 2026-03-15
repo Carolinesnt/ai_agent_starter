@@ -1,0 +1,121 @@
+scenario_id,endpoint_id,vulnerability_type,actor_role,resource_owner_role,test_action,original_identifier,modified_identifier,expected_result,scenario_description
+SC001,EP001,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own user profile (baseline)
+SC002,EP002,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own user profile (baseline)
+SC003,EP003,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own user profile (baseline)
+SC004,EP004,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own session/identity (baseline)
+SC005,EP005,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own user profile (baseline)
+SC006,EP006,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own document (baseline)
+SC007,EP009,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own payroll record (baseline)
+SC008,EP010,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own leave request (baseline)
+SC009,EP011,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own leave request (baseline)
+SC010,EP012,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own admin/audit data (baseline)
+SC011,EP013,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own admin/audit data (baseline)
+SC012,EP001,IDOR,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other user profile (allowed)
+SC013,EP002,IDOR,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other user profile (allowed)
+SC014,EP003,IDOR,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other user profile (allowed)
+SC015,EP004,BOLA,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other session/identity (allowed)
+SC016,EP005,BOLA,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other user profile (allowed)
+SC017,EP006,BOLA,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other document (allowed)
+SC018,EP009,BOLA,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other payroll record (allowed)
+SC019,EP010,BOLA,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other leave request (allowed)
+SC020,EP011,IDOR,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other leave request (allowed)
+SC021,EP012,BOLA,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other admin/audit data (allowed)
+SC022,EP013,BOLA,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other admin/audit data (allowed)
+SC023,EP014,BOLA,Admin_HC,Admin_HC,self_access,2026,,deny,admin hc correctly denied access to resource
+SC024,EP015,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own resource (baseline)
+SC025,EP017,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own document (baseline)
+SC026,EP018,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own payroll record (baseline)
+SC027,EP019,BOLA,Admin_HC,Admin_HC,unauthorized_write,2026,,deny,admin hc accessed leave request (expected deny)
+SC028,EP014,BOLA,Admin_HC,other,replace_identifier,,2026,deny,admin hc correctly denied access to resource
+SC029,EP015,BOLA,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other resource (allowed)
+SC030,EP017,BOLA,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other document (allowed)
+SC031,EP018,BOLA,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other payroll record (allowed)
+SC032,EP019,BOLA,Admin_HC,other,unauthorized_write,,2026,deny,admin hc attempts to access another user's leave request
+SC033,EP021,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own resource (baseline)
+SC034,EP022,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own user profile (baseline)
+SC035,EP025,BASELINE,Admin_HC,Admin_HC,self_access,2026,,allow,admin hc accesses own leave request (baseline)
+SC036,EP021,IDOR,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other resource (allowed)
+SC037,EP022,IDOR,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other user profile (allowed)
+SC038,EP025,IDOR,Admin_HC,other,replace_identifier,,2026,allow,admin hc accesses other leave request (allowed)
+SC039,EP001,BOLA,Employee,Employee,self_access,2026,,deny,employee GET /users/{user_id}/ (self=True) -> NF
+SC040,EP002,BOLA,Employee,Employee,self_access,2026,,deny,employee GET /payroll/{user_id}/ (self=True) -> NF
+SC041,EP003,BOLA,Employee,Employee,self_access,2026,,deny,employee correctly denied access to user profile
+SC042,EP004,BASELINE,Employee,Employee,self_access,2026,,allow,employee accesses own session/identity (baseline)
+SC043,EP005,BOLA,Employee,Employee,self_access,2026,,deny,employee correctly denied access to user profile
+SC044,EP006,BASELINE,Employee,Employee,self_access,2026,,allow,employee accesses own document (baseline)
+SC045,EP009,BOLA,Employee,Employee,self_access,2026,,deny,employee correctly denied access to payroll record
+SC046,EP010,BASELINE,Employee,Employee,self_access,2026,,allow,employee accesses own leave request (baseline)
+SC047,EP011,BASELINE,Employee,Employee,self_access,2026,,allow,employee accesses own leave request (baseline)
+SC048,EP012,BOLA,Employee,Employee,self_access,2026,,deny,employee correctly denied access to admin/audit data
+SC049,EP013,BOLA,Employee,Employee,self_access,2026,,deny,employee correctly denied access to admin/audit data
+SC050,EP001,IDOR,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to user profile
+SC051,EP002,IDOR,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to user profile
+SC052,EP003,IDOR,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to user profile
+SC053,EP004,BOLA,Employee,other,replace_identifier,,2026,allow,employee accesses other session/identity (allowed)
+SC054,EP005,BOLA,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to user profile
+SC055,EP006,BOLA,Employee,other,replace_identifier,,2026,allow,employee accesses other document (allowed)
+SC056,EP009,BOLA,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to payroll record
+SC057,EP010,BOLA,Employee,other,replace_identifier,,2026,allow,employee accesses other leave request (allowed)
+SC058,EP011,IDOR,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to leave request
+SC059,EP012,BOLA,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to admin/audit data
+SC060,EP013,BOLA,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to admin/audit data
+SC061,EP014,BASELINE,Employee,Employee,self_access,2026,,allow,employee accesses own resource (baseline)
+SC062,EP015,BASELINE,Employee,Employee,self_access,2026,,allow,employee accesses own resource (baseline)
+SC063,EP016,BOLA,Employee,Employee,self_access,2026,,deny,employee correctly denied access to user profile
+SC064,EP017,BASELINE,Employee,Employee,self_access,2026,,allow,employee accesses own document (baseline)
+SC065,EP018,BOLA,Employee,Employee,self_access,2026,,deny,employee correctly denied access to payroll record
+SC066,EP019,BASELINE,Employee,Employee,self_access,2026,,allow,employee accesses own leave request (baseline)
+SC067,EP014,BOLA,Employee,other,replace_identifier,,2026,allow,employee accesses other resource (allowed)
+SC068,EP015,BOLA,Employee,other,replace_identifier,,2026,allow,employee accesses other resource (allowed)
+SC069,EP016,BOLA,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to user profile
+SC070,EP017,BOLA,Employee,other,replace_identifier,,2026,allow,employee accesses other document (allowed)
+SC071,EP018,BOLA,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to payroll record
+SC072,EP019,BOLA,Employee,other,replace_identifier,,2026,allow,employee accesses other leave request (allowed)
+SC073,EP021,BOLA,Employee,Employee,self_access,2026,,deny,employee correctly denied access to resource
+SC074,EP022,BOLA,Employee,Employee,self_access,2026,,deny,employee correctly denied access to user profile
+SC075,EP025,BOLA,Employee,Employee,self_access,2026,,deny,employee correctly denied access to leave request
+SC076,EP021,IDOR,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to resource
+SC077,EP022,IDOR,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to user profile
+SC078,EP024,IDOR,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to leave request
+SC079,EP025,IDOR,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to leave request
+SC080,EP026,IDOR,Employee,other,replace_identifier,,2026,deny,employee correctly denied access to leave request
+SC081,EP001,BOLA,Employee_2,Employee_2,self_access,2026,,deny,employee 2 correctly denied access to user profile
+SC082,EP002,BOLA,Employee_2,Employee_2,self_access,2026,,deny,employee 2 correctly denied access to user profile
+SC083,EP003,BOLA,Employee_2,Employee_2,self_access,2026,,deny,employee 2 correctly denied access to user profile
+SC084,EP004,BASELINE,Employee_2,Employee_2,self_access,2026,,allow,employee 2 accesses own session/identity (baseline)
+SC085,EP005,BOLA,Employee_2,Employee_2,self_access,2026,,deny,employee 2 correctly denied access to user profile
+SC086,EP006,BOLA,Employee_2,Employee_2,unauthorized_read,2026,,deny,employee 2 accessed document (expected deny)
+SC087,EP009,BOLA,Employee_2,Employee_2,self_access,2026,,deny,employee 2 correctly denied access to payroll record
+SC088,EP010,BOLA,Employee_2,Employee_2,unauthorized_read,2026,,deny,employee 2 accessed leave request (expected deny)
+SC089,EP011,BOLA,Employee_2,Employee_2,unauthorized_read,2026,,deny,employee 2 accessed leave request (expected deny)
+SC090,EP012,BOLA,Employee_2,Employee_2,self_access,2026,,deny,employee 2 correctly denied access to admin/audit data
+SC091,EP013,BOLA,Employee_2,Employee_2,self_access,2026,,deny,employee 2 correctly denied access to admin/audit data
+SC092,EP001,IDOR,Employee_2,other,replace_identifier,,2026,deny,employee 2 attempts to access another user's user profile
+SC093,EP002,IDOR,Employee_2,other,replace_identifier,,2026,deny,employee 2 attempts to access another user's user profile
+SC094,EP003,IDOR,Employee_2,other,replace_identifier,,2026,deny,employee 2 correctly denied access to user profile
+SC095,EP004,BOLA,Employee_2,other,replace_identifier,,2026,allow,employee 2 accesses other session/identity (allowed)
+SC096,EP005,BOLA,Employee_2,other,replace_identifier,,2026,deny,employee 2 correctly denied access to user profile
+SC097,EP006,BOLA,Employee_2,other,unauthorized_read,,2026,deny,employee 2 attempts to access another user's document
+SC098,EP009,BOLA,Employee_2,other,replace_identifier,,2026,deny,employee 2 correctly denied access to payroll record
+SC099,EP010,BOLA,Employee_2,other,unauthorized_read,,2026,deny,employee 2 attempts to access another user's leave request
+SC100,EP011,IDOR,Employee_2,other,replace_identifier,,2026,deny,employee 2 attempts to access another user's leave request
+SC101,EP012,BOLA,Employee_2,other,replace_identifier,,2026,deny,employee 2 correctly denied access to admin/audit data
+SC102,EP013,BOLA,Employee_2,other,replace_identifier,,2026,deny,employee 2 correctly denied access to admin/audit data
+SC103,EP014,BASELINE,Employee_2,Employee_2,self_access,2026,,allow,employee 2 accesses own resource (baseline)
+SC104,EP015,BASELINE,Employee_2,Employee_2,self_access,2026,,allow,employee 2 accesses own resource (baseline)
+SC105,EP016,BOLA,Employee_2,Employee_2,self_access,2026,,deny,employee 2 correctly denied access to user profile
+SC106,EP017,BOLA,Employee_2,Employee_2,unauthorized_write,2026,,deny,employee 2 accessed document (expected deny)
+SC107,EP018,BOLA,Employee_2,Employee_2,self_access,2026,,deny,employee 2 correctly denied access to payroll record
+SC108,EP019,BOLA,Employee_2,Employee_2,unauthorized_write,2026,,deny,employee 2 accessed leave request (expected deny)
+SC109,EP014,BOLA,Employee_2,other,replace_identifier,,2026,allow,employee 2 accesses other resource (allowed)
+SC110,EP015,BOLA,Employee_2,other,replace_identifier,,2026,allow,employee 2 accesses other resource (allowed)
+SC111,EP016,BOLA,Employee_2,other,replace_identifier,,2026,deny,employee 2 correctly denied access to user profile
+SC112,EP017,BOLA,Employee_2,other,unauthorized_write,,2026,deny,employee 2 attempts to access another user's document
+SC113,EP018,BOLA,Employee_2,other,replace_identifier,,2026,deny,employee 2 correctly denied access to payroll record
+SC114,EP019,BOLA,Employee_2,other,unauthorized_write,,2026,deny,employee 2 attempts to access another user's leave request
+SC115,EP021,BOLA,Employee_2,Employee_2,self_access,2026,,deny,employee 2 correctly denied access to resource
+SC116,EP022,BOLA,Employee_2,Employee_2,self_access,2026,,deny,employee 2 correctly denied access to user profile
+SC117,EP025,BOLA,Employee_2,Employee_2,self_access,2026,,deny,employee 2 correctly denied access to leave request
+SC118,EP021,IDOR,Employee_2,other,replace_identifier,,2026,deny,employee 2 correctly denied access to resource
+SC119,EP022,IDOR,Employee_2,other,replace_identifier,,2026,deny,employee 2 correctly denied access to user profile
+SC120,EP025,IDOR,Employee_2,other,replace_identifier,,2026,deny,employee 2 correctly denied access to leave request

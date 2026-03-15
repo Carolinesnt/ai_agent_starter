@@ -51,23 +51,25 @@ def check_all():
     cfg_dir = _pkg_root() / "config"
     data_dir = _pkg_root() / "data"
 
+    policy_file = cfg_dir / "policy.yaml"
+
     # Check 1: Files exist
     required_files = [
         cfg_dir / "agent.yaml",
         cfg_dir / "auth.yaml",
-        cfg_dir / "policy.yaml",
         data_dir / "roles.csv",
         data_dir / "permissions.csv",
     ]
-    # Accept either plural or singular file naming
-    role_perm_candidates = [
-        data_dir / "role_permissions.csv",
-        data_dir / "role_permission.csv",
-    ]
-    if not any(p.exists() for p in role_perm_candidates):
-        issues.append("[ERR] Missing: role_permissions.csv or role_permission.csv in ai_agent/data")
+    role_perm_path = data_dir / "role_permission.csv"
+    if not role_perm_path.exists():
+        issues.append("[ERR] Missing: role_permission.csv in ai_agent/data")
     else:
-        print("[OK ] role_permissions mapping found")
+        print(f"[OK ] {role_perm_path}")
+
+    if not policy_file.exists():
+        issues.append("[ERR] Missing: policy.yaml in ai_agent/config")
+    else:
+        print(f"[OK ] {policy_file}")
 
     for file in required_files:
         if not Path(file).exists():

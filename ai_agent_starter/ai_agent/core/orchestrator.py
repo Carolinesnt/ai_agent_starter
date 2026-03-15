@@ -23,12 +23,41 @@ try:
     from openai import OpenAI
 except Exception:
     OpenAI = None
+# Try new Google Genai API first (preferred)
 try:
-    import google.generativeai as genai
+    from google import genai as genai_new
+    GENAI_NEW_AVAILABLE = True
 except Exception:
-    genai = None
+    genai_new = None
+    GENAI_NEW_AVAILABLE = False
+# Fallback to deprecated google.generativeai
+try:
+    import google.generativeai as genai_old
+    GENAI_OLD_AVAILABLE = True
+except Exception:
+    genai_old = None
+    GENAI_OLD_AVAILABLE = False
+# Legacy: keep genai for backward compatibility
+genai = genai_old
 
 TOP_N_ENDPOINTS = 56
+
+def _get_gemini_model_from_env() -> str:
+    """Read Gemini model from env with safe default."""
+    return (os.getenv("GEMINI_MODEL") or "gemini-1.5-flash").strip()
+
+def _normalize_gemini_model(model_name: str, for_new_api: bool = True) -> str:
+    """
+    Normalize model naming across Gemini SDK variants.
+    - New API accepts with or without `models/` prefix.
+    - Old API expects bare name (without `models/`).
+    """
+    raw = str(model_name or "").strip()
+    if not raw:
+        return "models/gemini-1.5-flash" if for_new_api else "gemini-1.5-flash"
+    if for_new_api:
+        return raw if raw.startswith("models/") else f"models/{raw}"
+    return raw[len("models/"):] if raw.startswith("models/") else raw
 
 def _load_adjustments() -> Dict[str, Any]:
     """Parse adjustment.txt rules for safe CRUD flows and delete guards.
@@ -430,15 +459,45 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
         # Default baseline (self access, normal operations)
         return 'baseline'
 
-    def _target_user_id(as_role: str, self_access: bool) -> int:
-        uid = auth.get_user_id(as_role)
-        if not self_access:
-            alt_role = f"{as_role}_2"
-            if hasattr(auth, 'roles') and alt_role in auth.roles:
-                alt_uid = auth.get_user_id(alt_role)
-                return alt_uid if isinstance(alt_uid, int) and alt_uid > 0 else uid + 1
-            return uid + 1
-        return uid
+    def _resolved_user_id(role_name: str) -> int | None:
+        # Prefer discovered/learned IDs first
+        try:
+            rid_map = memory.resource_ids.get(role_name, {}) or {}
+            for k in ("user_id", "id_user", "user", "id"):
+                v = rid_map.get(k)
+                if isinstance(v, int) and v > 0:
+                    return v
+        except Exception:
+            pass
+        # Fallback to auth manager (env/config)
+        try:
+            uid = auth.get_user_id(role_name)
+            if isinstance(uid, int) and uid > 0:
+                return uid
+        except Exception:
+            pass
+        return None
+
+    def _target_user_id(as_role: str, self_access: bool) -> int | None:
+        uid = _resolved_user_id(as_role)
+        if self_access:
+            return uid
+        # Prefer explicit sibling role (Employee -> Employee_2) when available
+        alt_role = f"{as_role}_2"
+        if hasattr(auth, 'roles') and alt_role in auth.roles:
+            alt_uid = _resolved_user_id(alt_role)
+            if isinstance(alt_uid, int) and alt_uid > 0:
+                return alt_uid
+        # Or use an "other user" candidate discovered from list endpoints for same role scope
+        try:
+            rid_map = memory.resource_ids.get(as_role, {}) or {}
+            for k in ("other_user_id", "other_user", "id_other_user"):
+                v = rid_map.get(k)
+                if isinstance(v, int) and v > 0 and v != uid:
+                    return v
+        except Exception:
+            pass
+        return None
 
     def _lookup_resource_id(owner_role: str, placeholder: str) -> int | None:
         # Try exact placeholder, then normalized variants
@@ -462,28 +521,29 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
         # Compute default user-centric target id for fallback
         target_id = _target_user_id(as_role, self_access)
         path_lower_ctx = (path or "").lower()
-
+        
         def repl(m):
             name = m.group(1)
-            # If placeholder looks user-id-like, use target user id
-            if name == 'id' or name in ("user_id", "employee_id") or name.endswith('_id') and ('user' in name.lower() or 'employee' in name.lower()):
-                return str(target_id)
-            # Try resource-specific id from seeded fixtures
+            # Always try discovered/seeded resource id first (including user_id aliases).
             rid = _lookup_resource_id(owner_role, name)
             if rid is not None:
                 return str(rid)
+            # If placeholder looks user-id-like, use target user id
+            if name == 'id' or name in ("user_id", "employee_id") or name.endswith('_id') and ('user' in name.lower() or 'employee' in name.lower()):
+                return str(target_id) if isinstance(target_id, int) and target_id > 0 else m.group(0)
             # If generally id-like, only fallback to user target id when placeholder is user-related
             nl = name.lower()
             if 'id' in nl:
                 # Fallback only for explicit user-related placeholders
                 if nl in ("user_id", "employee_id") or ("user" in nl or "employee" in nl):
-                    return str(target_id)
+                    return str(target_id) if isinstance(target_id, int) and target_id > 0 else m.group(0)
                 # Also allow generic {id} when path denotes a user/employee resource context
                 if nl == 'id' and ("/user" in path_lower_ctx or "/employee" in path_lower_ctx):
-                    return str(target_id)
-                # Otherwise, avoid substituting unrelated ids (e.g., item_id) with user_id
-                # Leave placeholder as-is to avoid false positives; server likely returns 404 (treated as NOT_FOUND, not FP)
+                    return str(target_id) if isinstance(target_id, int) and target_id > 0 else m.group(0)
+                # For other ID-like placeholders (doc_id, leave_id, etc.):
+                # do NOT inject random IDs. Keep placeholder unresolved; caller will skip test.
                 return m.group(0)
+            # For non-ID placeholders, leave as-is
             return m.group(0)
 
         return re.sub(r"\{([^}/]+)\}", repl, path)
@@ -562,18 +622,90 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
                 # try exact matches first, then common variants
                 keys_try = [ph, base, f"{base}_id", f"id_{base}"]
                 rid = None
+                matched_key = None
                 for k in keys_try:
                     if k in cands:
                         rid = cands[k]
+                        matched_key = k
                         break
                 # fallback: pick strongest candidate whose key contains the base token
                 if rid is None:
                     for k, v in cands.items():
                         if base and base.lower() in k.lower():
                             rid = v
+                            matched_key = k
                             break
                 if rid is not None and isinstance(rid, int) and rid > 0:
+                    # Keep multiple aliases so placeholders like user_id/doc_id/id_user can be reused later.
+                    memory.store_resource_id(owner_role, ph, rid)
                     memory.store_resource_id(owner_role, base, rid)
+                    if matched_key:
+                        memory.store_resource_id(owner_role, matched_key, rid)
+                    try:
+                        print(f"      [IDMAP] role={owner_role} {ph}={rid}")
+                    except Exception:
+                        pass
+            # Additional learning for identity/list endpoints without placeholders.
+            pnorm = normalize_path(tc.path).lower()
+            if "/auth/me" in pnorm:
+                body_obj = resp_body.get("data") if isinstance(resp_body, dict) and isinstance(resp_body.get("data"), dict) else resp_body
+                if isinstance(body_obj, dict):
+                    for k in ("id", "user_id", "id_user"):
+                        try:
+                            iv = int(body_obj.get(k))
+                            if iv > 0:
+                                memory.store_resource_id(owner_role, "user", iv)
+                                memory.store_resource_id(owner_role, "user_id", iv)
+                                print(f"      [IDMAP] role={owner_role} user_id={iv} (from /auth/me)")
+                                break
+                        except Exception:
+                            continue
+            if pnorm.rstrip("/") == "/users":
+                items = None
+                if isinstance(resp_body, dict):
+                    d = resp_body.get("data")
+                    items = d if isinstance(d, list) else None
+                    if items is None:
+                        for key in ("items", "results", "list"):
+                            if isinstance(resp_body.get(key), list):
+                                items = resp_body.get(key)
+                                break
+                elif isinstance(resp_body, list):
+                    items = resp_body
+                if isinstance(items, list) and items:
+                    try:
+                        env_user, _ = auth._env_credentials_for_role(owner_role)
+                        env_email = auth._env_email_for_role(owner_role)
+                    except Exception:
+                        env_user, env_email = None, None
+                    self_uid = None
+                    other_uid = None
+                    for it in items:
+                        if not isinstance(it, dict):
+                            continue
+                        iv = None
+                        for idk in ("id", "user_id", "id_user"):
+                            try:
+                                iv = int(it.get(idk))
+                                if iv > 0:
+                                    break
+                            except Exception:
+                                iv = None
+                        if not iv:
+                            continue
+                        uname = str(it.get("username") or "").strip().lower()
+                        email = str(it.get("email") or "").strip().lower()
+                        if (env_user and uname == str(env_user).strip().lower()) or (env_email and email == str(env_email).strip().lower()):
+                            self_uid = iv
+                        elif other_uid is None:
+                            other_uid = iv
+                    if isinstance(self_uid, int) and self_uid > 0:
+                        memory.store_resource_id(owner_role, "user", self_uid)
+                        memory.store_resource_id(owner_role, "user_id", self_uid)
+                        print(f"      [IDMAP] role={owner_role} user_id={self_uid} (from /users)")
+                    if isinstance(other_uid, int) and other_uid > 0:
+                        memory.store_resource_id(owner_role, "other_user", other_uid)
+                        memory.store_resource_id(owner_role, "other_user_id", other_uid)
         except Exception:
             return
 
@@ -666,6 +798,24 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
 
         # Mutasi path: ganti {id}-like
         path = _fill_placeholders(tc.path, as_role, tc.self_access)
+        # If some placeholders remain unresolved, skip this test case to avoid noisy random 404s.
+        try:
+            if re.search(r"\{[^}/]+\}", str(path or "")):
+                try:
+                    print(f"[SKIP] role={tc.role} | unresolved placeholder in path: {path}")
+                except Exception:
+                    pass
+                import time as _t
+                memory.record_result(Result(
+                    tc=tc,
+                    status_code=0,
+                    body={"skipped": True, "reason": "unresolved path placeholder", "path": path},
+                    ts=_t.time(),
+                    artifact=None
+                ))
+                return
+        except Exception:
+            pass
         # Unconditional cleanup for known stray prefixes like 'I2/'
         try:
             rawp = str(path or '').lstrip('\ufeff').strip()
@@ -699,7 +849,7 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
             # keep original path best effort
             pass
 
-        # Special case: assign role to user -> enforce user_id=112 and JSON body
+        # Special case: assign role to user -> resolve target user_id and schema-driven JSON body
         try:
             if str(tc.method).upper() == 'POST' and '/user/' in path and '/roles' in path:
                 # Prefer stored/self user id; else generate a random-looking id
@@ -788,13 +938,33 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
                     except Exception:
                         fixed_uid = 0
                 if not isinstance(fixed_uid, int) or fixed_uid <= 0:
-                    fixed_uid = _rnd.randint(100, 999)
+                    try:
+                        print(f"[SKIP] role={tc.role} | cannot resolve user_id for role-assignment endpoint: {path}")
+                    except Exception:
+                        pass
+                    import time as _t
+                    memory.record_result(Result(
+                        tc=tc,
+                        status_code=0,
+                        body={"skipped": True, "reason": "unresolved user_id for role assignment", "path": path},
+                        ts=_t.time(),
+                        artifact=None
+                    ))
+                    return
                 # normalize any placeholder or numeric segment to 112 for /user/{user_id}/roles
                 path = re.sub(r"(/user/)(?:\d+|\{[^}/]+\})(/roles)", fr"\1{fixed_uid}\2", path)
-                # enforce minimal body for role assignment
-                mut.setdefault('json', {})
-                if isinstance(mut['json'], dict):
-                    mut['json'].update({"id_role": 1, "role_name": "Admin_HC"})
+                # Build role-assignment body from OpenAPI schema instead of hardcoded values.
+                # Keep explicit mutation json if caller already provided it.
+                if not isinstance(mut.get('json'), dict):
+                    schema = _req_schema(openapi, tc.path, tc.method)
+                    if not schema:
+                        try:
+                            templ = re.sub(r"/(\d+)(?:$|/)", "/{id}", tc.path)
+                            schema = _req_schema(openapi, templ, tc.method)
+                        except Exception:
+                            pass
+                    gen_body = _minimal(schema)
+                    mut['json'] = gen_body if isinstance(gen_body, dict) else {}
         except Exception:
             pass
 
@@ -802,7 +972,30 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
         # Query param duplication for ID injection
         params = None
         if mut.get("query_id"):
-            params = {"id": _target_user_id(as_role, tc.self_access)}
+            qid = _target_user_id(as_role, tc.self_access)
+            if isinstance(qid, int) and qid > 0:
+                params = {"id": qid}
+
+        # Guard: never delete currently authenticated user's own account.
+        try:
+            if str(tc.method).upper() == "DELETE":
+                m_uid = re.search(r"/users/(\d+)(?:$|/)", str(path or ""))
+                if m_uid:
+                    target_uid = int(m_uid.group(1))
+                    self_uid = _target_user_id(as_role, True)
+                    if isinstance(self_uid, int) and self_uid > 0 and target_uid == self_uid:
+                        print(f"[SKIP] role={tc.role} | protected active user_id delete blocked: {target_uid}")
+                        import time as _t
+                        memory.record_result(Result(
+                            tc=tc,
+                            status_code=0,
+                            body={"skipped": True, "reason": "protected active user delete", "user_id": target_uid},
+                            ts=_t.time(),
+                            artifact=None
+                        ))
+                        return
+        except Exception:
+            pass
 
         # Extra headers and method override
         extra_headers = {}
@@ -977,6 +1170,7 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
         try:
             payload_info = resp.get('payload_info', {})
             status = resp['status_code']
+            resp_body = resp.get('body', {})
             
             # Status color indicator
             if status >= 200 and status < 300:
@@ -993,8 +1187,27 @@ def execute(memory: Memory, http: HttpClient, auth: AuthManager, policy: dict, t
             if payload_info.get('attempts', 1) > 1:
                 markers.append(f"RETRY×{payload_info.get('attempts')}")
             marker_str = f" [{','.join(markers)}]" if markers else ""
-            
-            print(f"[RES] {status_marker} {status:3}{marker_str}")
+
+            # Compact response summary to make console output actionable.
+            brief = ""
+            try:
+                if isinstance(resp_body, dict):
+                    for k in ("error", "message", "detail"):
+                        if resp_body.get(k):
+                            brief = str(resp_body.get(k))
+                            break
+                    if not brief:
+                        brief = f"keys={','.join(list(resp_body.keys())[:4])}" if resp_body else "{}"
+                elif isinstance(resp_body, list):
+                    brief = f"list[{len(resp_body)}]"
+                else:
+                    brief = str(resp_body) if resp_body is not None else ""
+            except Exception:
+                brief = ""
+            if len(brief) > 120:
+                brief = brief[:117] + "..."
+
+            print(f"[RES] {status_marker} {status:3}{marker_str} | {tc.method} {path} | {brief}")
         except Exception:
             pass
         # Optional slow mode between requests
@@ -1132,7 +1345,7 @@ def generate_llm(client, plan_pairs: List[Dict[str, Any]], policy: dict, openapi
         # Keep only endpoints present in OpenAPI to avoid off-topic
         if (m, pth) not in openapi_set:
             continue
-        role = t.get("role") or (roles[0] if roles else "Employee")
+        role = t.get("role") or (roles[0] if roles else "default_role")
         mutations = t.get("mutations") or []
         # baseline self
         cases.append(TestCase(method=m, path=pth, role=role, self_access=True, mutation={"type":"baseline"}))
@@ -1357,7 +1570,8 @@ def generate_followups(observations: List[Dict[str, Any]], available_roles: List
         # 3) Duplicate ID in querystring
         followups.append(TestCase(**{**base, "mutation": {"type": "QUERY_INJECTION", "query_id": True}}))
         # 4) Role spoofing header (X-Role)
-        target_role = "Admin_HC" if "Admin_HC" in available_roles else (available_roles[0] if available_roles else o["role"])
+        # Pick any different available role as spoof target; avoid project-specific role names.
+        target_role = next((r for r in (available_roles or []) if r != o["role"]), None) or (available_roles[0] if available_roles else o["role"])
         followups.append(TestCase(**{**base, "mutation": {"type": "ROLE_SPOOF", "headers": {"X-Role": target_role}}}))
     return followups
 
@@ -1443,13 +1657,37 @@ class AgentOrchestrator:
         # Normalize provider aliases
         if self.llm_provider in ("google", "google-genai", "google_genai"):
             self.llm_provider = "gemini"
-        if self.llm_provider == "gemini" and genai and os.getenv("GEMINI_API_KEY"):
-            try:
-                genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-                self.llm_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-                self.client = genai.GenerativeModel(self.llm_model)
-            except Exception:
-                self.client = None
+        if self.llm_provider == "gemini":
+            # Try new API first (pass API key explicitly)
+            if GENAI_NEW_AVAILABLE:
+                gemini_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+                if gemini_key:
+                    try:
+                        # Pass API key explicitly (more reliable than env var)
+                        self.client = genai_new.Client(api_key=gemini_key)
+                        raw_model = _get_gemini_model_from_env()
+                        self.llm_model = _normalize_gemini_model(raw_model, for_new_api=True)
+                    except Exception:
+                        self.client = None
+                else:
+                    # Fallback: try without explicit key (uses env var)
+                    try:
+                        self.client = genai_new.Client()
+                        raw_model = _get_gemini_model_from_env()
+                        self.llm_model = _normalize_gemini_model(raw_model, for_new_api=True)
+                    except Exception:
+                        self.client = None
+            # Fallback to old API
+            if self.client is None and GENAI_OLD_AVAILABLE:
+                gemini_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+                if gemini_key:
+                    try:
+                        genai_old.configure(api_key=gemini_key)
+                        raw_model = _get_gemini_model_from_env()
+                        self.llm_model = _normalize_gemini_model(raw_model, for_new_api=False)
+                        self.client = genai_old.GenerativeModel(self.llm_model)
+                    except Exception:
+                        self.client = None
         elif self.llm_provider in ("openai", "") and OpenAI and os.getenv("OPENAI_API_KEY"):
             try:
                 self.client = OpenAI()
@@ -1755,7 +1993,7 @@ class AgentOrchestrator:
                 pth = normalize_path(p_raw if str(p_raw).startswith('/') else '/' + str(p_raw))
                 if (m, pth) not in openapi_set:
                     continue
-                role = t.get("role") or (roles[0] if roles else "Employee")
+                role = t.get("role") or (roles[0] if roles else "default_role")
                 mutations = t.get("mutations") or []
                 cases.append(TestCase(method=m, path=pth, role=role, self_access=True, mutation={"type":"baseline"}))
                 for mut in mutations[:3]:
@@ -1771,6 +2009,30 @@ class AgentOrchestrator:
     def _generate_summary_recommendations(self, cf: Dict[str, int], m: Dict[str, float], cov: Dict[str, Any], results: List[Result], policy: dict, vulns: int) -> str:
         """Generate comprehensive LLM-based security assessment summary and actionable recommendations."""
         try:
+            last_err = None
+            def _extract_gemini_text(resp: Any) -> str:
+                """Best-effort text extraction across Gemini SDK response shapes."""
+                try:
+                    txt = getattr(resp, "text", None)
+                    if isinstance(txt, str) and txt.strip():
+                        return txt.strip()
+                except Exception:
+                    pass
+                chunks: List[str] = []
+                try:
+                    candidates = getattr(resp, "candidates", None) or []
+                    for c in candidates:
+                        content = getattr(c, "content", None)
+                        parts = getattr(content, "parts", None) or []
+                        for p in parts:
+                            t = getattr(p, "text", None)
+                            if isinstance(t, str) and t.strip():
+                                chunks.append(t.strip())
+                    if chunks:
+                        return "\n".join(chunks).strip()
+                except Exception:
+                    pass
+                return ""
             # Load summarizer prompt
             prompt_path = Path(__file__).parent.parent / "prompts" / "summarizer.md"
             if not prompt_path.exists():
@@ -1830,47 +2092,49 @@ class AgentOrchestrator:
             )
             
             # Call LLM
-            if (self.llm_provider in ("gemini", "google_genai", "google-genai")) and genai:
-                # Try configured model first, then fallbacks for compatibility
-                names = []
-                try:
-                    if getattr(self, 'llm_model', None):
-                        names.append(self.llm_model)
-                except Exception:
-                    pass
-                # Common Gemini candidates across API versions
-                for cand in [
-                    'gemini-2.5-flash',
-                    'gemini-2.5-pro',
-                    'gemini-2.0-flash',
-                    'gemini-2.5-flash-latest',
-                    'gemini-1.5-pro-latest',
-                ]:
-                    if cand not in names:
-                        names.append(cand)
-                tried = []
-                last_err = None
-                for name in names:
+            if self.llm_provider in ("gemini", "google_genai", "google-genai"):
+                # Try new API first
+                if GENAI_NEW_AVAILABLE and self.client and isinstance(self.client, genai_new.Client):
                     try:
-                        m = genai.GenerativeModel(name)
-                        resp = m.generate_content(prompt)
-                        content = getattr(resp, 'text', None)
-                        if not content and getattr(resp, 'candidates', None):
-                            try:
-                                content = resp.candidates[0].content.parts[0].text
-                            except Exception:
-                                content = ''
-                        if content:
-                            try:
-                                self.llm_model = name
-                            except Exception:
-                                pass
-                            return content
+                        # Use model from instance or env var
+                        model_name = getattr(self, 'llm_model', None) or _get_gemini_model_from_env()
+                        if model_name:
+                            # Normalize model for new API
+                            normalized_model = _normalize_gemini_model(model_name, for_new_api=True)
+                            response = self.client.models.generate_content(
+                                model=normalized_model,
+                                contents=prompt,
+                                config={"response_mime_type": "text/plain"}
+                            )
+                            content = _extract_gemini_text(response)
+                            if content:
+                                return content
+                            last_err = "gemini(new-api): empty text/candidates response"
                     except Exception as e:
-                        last_err = str(e)
-                        tried.append(name)
-                        continue
-                raise RuntimeError(f"Gemini summary failed for models: {', '.join(tried)} | last_error: {last_err}")
+                        last_err = f"gemini(new-api): {e}"
+                        # Fallback to old API if new API fails
+                        pass
+                
+                # Fallback to old API
+                if GENAI_OLD_AVAILABLE:
+                    gemini_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+                    if gemini_key:
+                        try:
+                            genai_old.configure(api_key=gemini_key)
+                            # Use model from instance or env var
+                            raw_model = getattr(self, 'llm_model', None) or _get_gemini_model_from_env()
+                            if raw_model:
+                                # Normalize for old API (remove models/ prefix)
+                                normalized_model = _normalize_gemini_model(raw_model, for_new_api=False)
+                                m = genai_old.GenerativeModel(normalized_model)
+                                resp = m.generate_content(prompt)
+                                content = _extract_gemini_text(resp)
+                                if content:
+                                    return content
+                                last_err = "gemini(old-api): empty text/candidates response"
+                        except Exception as e:
+                            last_err = f"gemini(old-api): {e}"
+                            pass
             elif self.llm_provider == "openai" and self.client:
                 response = self.client.chat.completions.create(
                     model=self.llm_model,
@@ -1881,6 +2145,10 @@ class AgentOrchestrator:
                 return response.choices[0].message.content
             else:
                 return "⚠️ LLM summary unavailable (provider not configured)"
+            # Provider configured but no summary text returned from any path.
+            if last_err:
+                return f"⚠️ LLM summary unavailable (no content returned by provider). Last error: {last_err}"
+            return "⚠️ LLM summary unavailable (no content returned by provider)"
         
         except Exception as e:
             return f"⚠️ Summary generation failed: {str(e)}"
@@ -1909,22 +2177,11 @@ class AgentOrchestrator:
         )
         auth = AuthManager(http=http, auth_cfg=auth_cfg, openapi=openapi)
 
+        # Use only roles explicitly declared in auth.yaml.
+        # This avoids runtime "Unknown role" errors (e.g., policy role exists but auth flow is undefined).
         available_auth_roles = list(auth.roles.keys())
-        # Also consider roles that have env-based credentials even if not declared in auth.yaml
-        # Use candidate roles from policy/self/auth to avoid referencing undefined variable
-        try:
-            from .tools_auth import AuthManager as _AM
-            candidate_roles = (policy.get("roles") or self.roles or list(auth.roles.keys()))
-            for r in (candidate_roles or []):
-                if r in available_auth_roles:
-                    continue
-                base = _AM._env_key_base(r)
-                u = os.getenv(f"{base}_USERNAME")
-                p = os.getenv(f"{base}_PASSWORD")
-                if u or p:
-                    available_auth_roles.append(r)
-        except Exception:
-            pass
+        # Runtime test roles default to all authenticatable roles from auth.yaml.
+        roles = list(available_auth_roles)
 
         # Prepare memory and optionally seed fixtures to create resources and capture IDs per role
         memory = Memory()
@@ -1995,16 +2252,20 @@ class AgentOrchestrator:
                     )
             except Exception:
                 pass
-        roles = policy.get("roles") or self.roles or available_auth_roles
-        # Filter to roles we can actually authenticate (from auth.yaml or env creds), or allow all in dry_run
-        if not agent.get("dry_run", False):
-            roles = [r for r in roles if r in available_auth_roles]
-        # Keep Admin_HC, Employee, and Employee_2 when available
-        wanted = ["Admin_HC","Employee","Employee_2"]
-        roles = [r for r in roles if r in wanted]
-
         # Planning mode: policy-first (best practice) or default
         planning = (agent.get('planning') or {}) if isinstance(agent, dict) else {}
+
+        # Keep runtime roles aligned with auth.yaml to ensure all executed roles are authenticatable.
+        roles = list(available_auth_roles) if not agent.get("dry_run", False) else (policy.get("roles") or self.roles or available_auth_roles)
+        # Optional role restriction from config (disabled by default to keep exhaustive coverage).
+        # Example:
+        # planning:
+        #   role_filter: ["Admin_HC", "Employee"]
+        role_filter = planning.get("role_filter") if isinstance(planning, dict) else None
+        if isinstance(role_filter, list) and role_filter:
+            wanted = {str(r) for r in role_filter}
+            roles = [r for r in roles if r in wanted]
+
         policy_first = bool(planning.get('policy_first', True))
         include_all = bool(planning.get('include_all_endpoints', False))
         plan_with_llm = bool(planning.get('plan_with_llm', True))
@@ -2087,11 +2348,14 @@ class AgentOrchestrator:
         for tc in generated:
             memory.record_test(tc)
 
-        # Append best-practice CRUD flows in safe order based on adjustments
-        try:
-            self._append_crud_flows(openapi, memory, available_auth_roles)
-        except Exception:
-            pass
+        # Optional project-specific CRUD augmentation.
+        # Keep disabled by default to avoid hardcoded endpoint/role assumptions.
+        append_project_flows = bool(planning.get('append_project_flows', False)) if isinstance(planning, dict) else False
+        if append_project_flows:
+            try:
+                self._append_crud_flows(openapi, memory, available_auth_roles)
+            except Exception:
+                pass
 
         # EXECUTE/OBSERVE/REFLECT with depth iterations
         max_depth = int(agent.get("depth", 1))
@@ -2116,16 +2380,10 @@ class AgentOrchestrator:
             pending = [t for t in memory.tests if t.depth == cur_depth]
             if not pending and cur_depth > 0:
                 break
-            # Order pending: Employee (self) → Employee_2 → Admin → others; then GET→POST→PUT→DELETE; then self before other
+            # Order pending deterministically by configured role order, then method, then self->other.
+            role_order = {str(r): i for i, r in enumerate(roles or [])}
             def _role_rank(r: str) -> int:
-                rl = (r or '').lower()
-                if rl == 'employee':
-                    return 0
-                if rl == 'employee_2':
-                    return 1
-                if rl == 'admin_hc':
-                    return 2
-                return 3
+                return role_order.get(str(r), len(role_order))
             def _method_rank(m: str) -> int:
                 order = {'GET':0,'POST':1,'PUT':2,'DELETE':3}
                 return order.get((m or '').upper(), 9)
@@ -2166,9 +2424,19 @@ class AgentOrchestrator:
         cov = _coverage(memory.tests, roles, endpoints)
         vulns = int(cf.get("FN", 0))
         
+        llm_cfg = (agent.get("llm") or {}) if isinstance(agent, dict) else {}
+        summary_required = bool(llm_cfg.get("summary_required", False))
         llm_summary = self._generate_summary_recommendations(
             cf, m, cov, memory.results, policy, vulns
         )
+        if summary_required:
+            s = (llm_summary or "").strip()
+            if (not s) or s.startswith("⚠️"):
+                raise RuntimeError(
+                    "LLM summary generation failed in strict mode. "
+                    "Check LLM provider/model/API key and ai_agent/prompts/summarizer.md. "
+                    f"Details: {s or 'empty summary response'}"
+                )
 
         # Generate professional report filename with descriptive naming
         # Format: BAC_Security_Test_Report-YYYY-MM-DD_HH-MM-SS.json
@@ -2195,118 +2463,54 @@ class AgentOrchestrator:
             "metrics": m,
         }
 
-    # --- Best-practice CRUD sequence generator ---
+    # --- Optional generic augmenter (disabled by default) ---
     def _append_crud_flows(self, openapi: dict, memory: Memory, available_roles: List[str]):
-        if not isinstance(openapi, dict) or not openapi.get('paths'):
+        """
+        Add a small number of generic probes inferred from OpenAPI only.
+        This function intentionally avoids project-specific role names or endpoint paths.
+        """
+        if not isinstance(openapi, dict) or not openapi.get('paths') or not available_roles:
             return
-        def has_ep(m, p):
-            return (m.upper(), normalize_path(p)) in {(e["method"].upper(), normalize_path(e["path"])) for e in extract_paths_from_openapi(openapi)}
-        def _excluded(m, p):
-            try:
-                ex = getattr(self, '_excludes', set())
-            except Exception:
-                ex = set()
-            return (str(m).upper(), normalize_path(p)) in (ex or set())
-        def choose_role(prefer: str, fallback_first=True):
-            if prefer in available_roles:
-                return prefer
-            return available_roles[0] if (available_roles and fallback_first) else None
-        admin = choose_role('Admin_HC') or (available_roles[0] if available_roles else None)
-        employee = choose_role('Employee') or (available_roles[0] if available_roles else None)
-        employee2 = choose_role('Employee_2', fallback_first=False) or employee
-
-        # permissions
         try:
-            seq = []
-            if has_ep('GET','/permissions') and not _excluded('GET','/permissions'):
-                seq.append(TestCase(method='GET', path='/permissions', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('POST','/permissions') and not _excluded('POST','/permissions'):
-                seq.append(TestCase(method='POST', path='/permissions', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('GET','/permission/{id_permission}') and not _excluded('GET','/permission/{id_permission}'):
-                seq.append(TestCase(method='GET', path='/permission/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('PUT','/permission/{id_permission}') and not _excluded('PUT','/permission/{id_permission}'):
-                seq.append(TestCase(method='PUT', path='/permission/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('DELETE','/permission/{id_permission}') and not _excluded('DELETE','/permission/{id_permission}'):
-                seq.append(TestCase(method='DELETE', path='/permission/{id_permission}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            for tc in seq:
-                memory.record_test(tc)
+            ex = getattr(self, '_excludes', set()) or set()
         except Exception:
-            pass
+            ex = set()
+        eps = extract_paths_from_openapi(openapi) or []
 
-        # vertical escalation attempts (BOLA) against admin-ish endpoints using Employee token
-        try:
-            esc = []
-            if employee and has_ep('GET','/roles') and not _excluded('GET','/roles'):
-                esc.append(TestCase(method='GET', path='/roles', role=employee, self_access=True, mutation={"type":"BOLA", "headers": {"X-Role": "Admin_HC"}}))
-            if employee and has_ep('GET','/permissions') and not _excluded('GET','/permissions'):
-                esc.append(TestCase(method='GET', path='/permissions', role=employee, self_access=True, mutation={"type":"BOLA", "headers": {"X-Role": "Admin_HC"}}))
-            if employee and has_ep('GET','/users') and not _excluded('GET','/users'):
-                esc.append(TestCase(method='GET', path='/users', role=employee, self_access=True, mutation={"type":"BOLA", "headers": {"X-Role": "Admin_HC"}}))
-            # also a no-auth escalation probe for one admin endpoint
-            if has_ep('GET','/roles') and not _excluded('GET','/roles'):
-                esc.append(TestCase(method='GET', path='/roles', role=employee or admin, self_access=True, mutation={"type":"NO_AUTH", "no_auth": True}))
-            for tc in esc:
-                memory.record_test(tc)
-        except Exception:
-            pass
+        def _is_excluded(m: str, p: str) -> bool:
+            return (str(m).upper(), normalize_path(p)) in ex
 
-        # roles
-        try:
-            seq = []
-            if has_ep('GET','/roles') and not _excluded('GET','/roles'):
-                seq.append(TestCase(method='GET', path='/roles', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('POST','/roles') and not _excluded('POST','/roles'):
-                seq.append(TestCase(method='POST', path='/roles', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('GET','/role/{id_role}') and not _excluded('GET','/role/{id_role}'):
-                seq.append(TestCase(method='GET', path='/role/{id_role}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('PUT','/role/{id_role}') and not _excluded('PUT','/role/{id_role}'):
-                seq.append(TestCase(method='PUT', path='/role/{id_role}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('DELETE','/role/{id_role}') and not _excluded('DELETE','/role/{id_role}'):
-                seq.append(TestCase(method='DELETE', path='/role/{id_role}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            for tc in seq:
-                memory.record_test(tc)
-        except Exception:
-            pass
+        # Heuristic: admin-ish resources often carry access-control sensitivity.
+        sensitive_tokens = ("admin", "role", "permission", "rbac", "audit", "user")
+        sensitive_gets = []
+        for e in eps:
+            m = str(e.get("method") or "").upper()
+            p = normalize_path(str(e.get("path") or "/"))
+            if m != "GET" or _is_excluded(m, p):
+                continue
+            pl = p.lower()
+            if any(tok in pl for tok in sensitive_tokens):
+                sensitive_gets.append((m, p))
 
-        # consents
-        try:
-            seq = []
-            # list endpoints may vary; prefer /employee/consents/list if present
-            if has_ep('GET','/employee/consents/list') and not _excluded('GET','/employee/consents/list'):
-                seq.append(TestCase(method='GET', path='/employee/consents/list', role=admin, self_access=True, mutation={"type":"baseline"}))
-            elif has_ep('GET','/employee/consents/active') and not _excluded('GET','/employee/consents/active'):
-                seq.append(TestCase(method='GET', path='/employee/consents/active', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('POST','/employee/consents') and not _excluded('POST','/employee/consents'):
-                seq.append(TestCase(method='POST', path='/employee/consents', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('GET','/employee/consents/{id_consent}') and not _excluded('GET','/employee/consents/{id_consent}'):
-                seq.append(TestCase(method='GET', path='/employee/consents/{id_consent}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('PUT','/employee/consents/{id_consent}') and not _excluded('PUT','/employee/consents/{id_consent}'):
-                seq.append(TestCase(method='PUT', path='/employee/consents/{id_consent}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('DELETE','/employee/consents/{id_consent}') and not _excluded('DELETE','/employee/consents/{id_consent}'):
-                seq.append(TestCase(method='DELETE', path='/employee/consents/{id_consent}', role=admin, self_access=True, mutation={"type":"baseline"}))
-            for tc in seq:
-                memory.record_test(tc)
-        except Exception:
-            pass
+        if not sensitive_gets:
+            return
 
-        # change requests (employee flow + IDOR check)
-        try:
-            seq = []
-            if has_ep('GET','/employee/change-request'):
-                seq.append(TestCase(method='GET', path='/employee/change-request', role=employee, self_access=True, mutation={"type":"baseline"}))
-            if has_ep('POST','/employee/change-request'):
-                # draft to enable PUT later
-                seq.append(TestCase(method='POST', path='/employee/change-request', role=employee, self_access=True, mutation={"type":"baseline", "json": {"submit": False}}))
-            if has_ep('GET','/employee/change-request/{id_change_request}'):
-                # self check
-                seq.append(TestCase(method='GET', path='/employee/change-request/{id_change_request}', role=employee, self_access=True, mutation={"type":"baseline"}))
-                # IDOR check by other employee
-                if employee2 and employee2 != employee:
-                    seq.append(TestCase(method='GET', path='/employee/change-request/{id_change_request}', role=employee2, self_access=False, mutation={"type":"IDOR", "variant":"other"}))
-            if has_ep('PUT','/employee/change-request/{id_change_request}'):
-                seq.append(TestCase(method='PUT', path='/employee/change-request/{id_change_request}', role=employee, self_access=True, mutation={"type":"baseline"}))
-            # avoid DELETE by default for change-request unless explicitly desired
-            for tc in seq:
-                memory.record_test(tc)
-        except Exception:
-            pass
+        role_primary = available_roles[0]
+        role_secondary = available_roles[1] if len(available_roles) > 1 else available_roles[0]
+
+        # Keep augmentation bounded/deterministic.
+        for _m, p in sensitive_gets[:6]:
+            memory.record_test(TestCase(
+                method="GET",
+                path=p,
+                role=role_secondary,
+                self_access=True,
+                mutation={"type": "NO_AUTH", "no_auth": True},
+            ))
+            memory.record_test(TestCase(
+                method="GET",
+                path=p,
+                role=role_secondary,
+                self_access=True,
+                mutation={"type": "ROLE_SPOOF", "headers": {"X-Role": role_primary}},
+            ))

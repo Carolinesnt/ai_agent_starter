@@ -2,6 +2,16 @@
 """
 BYE BAC - Broken Access Control Detection CLI
 Interactive command-line interface for AI-powered security testing agent
+
+Quick command map:
+- byebac /help           -> quick command list
+- byebac /information    -> interactive explanation per command
+- byebac /check          -> validate setup and dependencies
+- byebac /runagent       -> run full BAC testing flow
+- byebac /status         -> show latest run summary
+- byebac /report [date]  -> show report file locations
+- byebac /config         -> preview active configuration
+- byebac /clean          -> remove generated artifacts/reports
 """
 
 import sys
@@ -10,6 +20,24 @@ import argparse
 import subprocess
 from pathlib import Path
 from datetime import datetime
+
+# Fix encoding for Windows console (avoid UnicodeEncodeError on banner/emojis)
+if sys.platform == "win32":
+    try:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+# Force line-buffered/write-through output so banner and progress appear in realtime.
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True, write_through=True)
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(line_buffering=True, write_through=True)
+except Exception:
+    pass
 
 # ANSI color codes
 class Colors:
@@ -22,6 +50,22 @@ class Colors:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
+
+
+def _resolve_policy_config(base_dir: Path) -> Path | None:
+    """Return canonical policy file (YAML only)."""
+    cfg_dir = base_dir / "ai_agent/config"
+    ypath = cfg_dir / "policy.yaml"
+    if ypath.exists():
+        return ypath
+    return None
+
+
+def _resolve_role_permission_file(base_dir: Path) -> Path | None:
+    """Use canonical role-permission mapping filename."""
+    data_dir = base_dir / "ai_agent/data"
+    mapping = data_dir / "role_permission.csv"
+    return mapping if mapping.exists() else None
 
 def print_banner():
     """Display BYE BAC ASCII banner"""
@@ -44,7 +88,7 @@ def print_banner():
     print(banner)
 
 def show_help():
-    """Display simple help menu"""
+    """Display quick usage guide (command: /help)."""
     print_banner()
     help_text = f"""
 {Colors.BOLD}{Colors.OKGREEN}QUICK START:{Colors.ENDC}
@@ -67,7 +111,7 @@ def show_help():
     print(help_text)
 
 def show_information():
-    """Interactive command information guide with back navigation"""
+    """Display interactive command explainer (command: /information)."""
     commands = {
         '1': {
             'name': '/check',
@@ -81,7 +125,7 @@ def show_information():
   ✓ Python version and environment
   ✓ Required configuration files (agent.yaml, policy.yaml, auth.yaml)
   ✓ OpenAPI specification file
-  ✓ Python dependencies (yaml, openai, requests, jinja2)
+  ✓ Python dependencies (yaml, requests, dotenv, rich, optional LLM SDK)
   ✓ Core agent scripts availability
 
 {Colors.BOLD}When to use:{Colors.ENDC}
@@ -114,7 +158,7 @@ def show_information():
 
 {Colors.BOLD}Requirements:{Colors.ENDC}
   • Valid OpenAPI spec in ai_agent/data/openapi.json
-  • RBAC policies defined in ai_agent/config/policy.yaml
+  • RBAC policies in ai_agent/config/policy.yaml
   • API credentials in ai_agent/config/auth.yaml
   • OpenAI API key configured (for LLM access)
 
@@ -343,7 +387,7 @@ def show_information():
             break
 
 def show_specification():
-    """Display technical specifications"""
+    """Display technical specification summary (command: /specification)."""
     print_banner()
     spec_text = f"""
 {Colors.BOLD}{Colors.OKGREEN}🤖 AI AGENT SPECIFICATIONS{Colors.ENDC}
@@ -407,7 +451,7 @@ def show_specification():
     print(spec_text)
 
 def check_setup():
-    """Validate setup and dependencies"""
+    """Validate required files/modules before run (command: /check)."""
     print_banner()
     print(f"\n{Colors.BOLD}{Colors.OKGREEN}🔍 Checking BYE BAC Setup...{Colors.ENDC}\n")
     
@@ -419,16 +463,19 @@ def check_setup():
     checks.append(("Python Version", python_version, True))
     
     # Check required files
+    policy_cfg = _resolve_policy_config(base_dir)
+    role_perm = _resolve_role_permission_file(base_dir)
     required_files = [
         ("OpenAPI Spec", base_dir / "ai_agent/data/openapi.json"),
         ("Agent Config", base_dir / "ai_agent/config/agent.yaml"),
-        ("Policy Config", base_dir / "ai_agent/config/policy.yaml"),
         ("Auth Config", base_dir / "ai_agent/config/auth.yaml"),
     ]
     
     for name, filepath in required_files:
         exists = filepath.exists()
         checks.append((name, str(filepath.name), exists))
+    checks.append(("Policy Config", str(policy_cfg.name) if policy_cfg else "policy.yaml", policy_cfg is not None))
+    checks.append(("Role Mapping", str(role_perm.name) if role_perm else "role_permission.csv", role_perm is not None))
     
     # Check scripts
     scripts_dir = base_dir / "ai_agent/scripts"
@@ -442,7 +489,7 @@ def check_setup():
     
     # Try to import required modules
     print(f"\n{Colors.BOLD}Python Dependencies:{Colors.ENDC}")
-    required_modules = ['yaml', 'openai', 'requests', 'jinja2']
+    required_modules = ['yaml', 'requests', 'dotenv', 'rich']
     all_ok = True
     
     for module in required_modules:
@@ -460,7 +507,7 @@ def check_setup():
         print(f"   {Colors.OKCYAN}pip install -r requirements.txt{Colors.ENDC}")
 
 def show_config():
-    """Display current configuration"""
+    """Preview key config files for quick inspection (command: /config)."""
     print_banner()
     print(f"\n{Colors.BOLD}{Colors.OKGREEN}⚙️  Current Configuration{Colors.ENDC}\n")
     
@@ -476,9 +523,9 @@ def show_config():
                 print(f"  {line.rstrip()}")
         print(f"  {Colors.WARNING}... (truncated, see full file for details){Colors.ENDC}\n")
     
-    # Show policy.yaml snippet
-    policy_config = base_dir / "ai_agent/config/policy.yaml"
-    if policy_config.exists():
+    # Show policy config snippet (canonical YAML)
+    policy_config = _resolve_policy_config(base_dir)
+    if policy_config and policy_config.exists():
         print(f"{Colors.BOLD}Policy Configuration:{Colors.ENDC} {Colors.OKCYAN}{policy_config}{Colors.ENDC}")
         with open(policy_config, 'r', encoding='utf-8') as f:
             lines = f.readlines()[:15]
@@ -487,7 +534,7 @@ def show_config():
         print(f"  {Colors.WARNING}... (truncated, see full file for details){Colors.ENDC}\n")
 
 def show_status():
-    """Show recent test runs status"""
+    """Show summary of the latest test report (command: /status)."""
     print_banner()
     print(f"\n{Colors.BOLD}{Colors.OKGREEN}📊 Test Run Status{Colors.ENDC}\n")
     
@@ -580,7 +627,7 @@ def show_status():
     print()
 
 def run_agent():
-    """Execute the AI agent"""
+    """Run orchestrator script and stream logs live (command: /runagent)."""
     print_banner()
     print(f"\n{Colors.BOLD}{Colors.OKGREEN}🚀 Starting BYE BAC Agent...{Colors.ENDC}\n")
     
@@ -599,19 +646,57 @@ def run_agent():
     # Set PYTHONPATH to include the base directory
     env = os.environ.copy()
     env['PYTHONPATH'] = str(base_dir)
+    # Force unbuffered child output so [RUN]/[RES]/[DEBUG] stream in realtime.
+    env['PYTHONUNBUFFERED'] = "1"
+    env['PYTHONIOENCODING'] = "utf-8"
     
     # Run the agent script from correct working directory
     try:
-        result = subprocess.run(
-            [sys.executable, str(script_path)],
+        # Stream child output live (so endpoint hits are visible), while keeping a tail buffer for failures.
+        proc = subprocess.Popen(
+            [sys.executable, "-u", str(script_path)],
             env=env,
-            cwd=str(base_dir),  # Ensure we run from base_dir
-            check=True
+            cwd=str(base_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1
         )
-        print(f"\n{Colors.BOLD}{Colors.OKGREEN}✅ Agent execution completed!{Colors.ENDC}")
-        print(f"Check the report with: {Colors.OKCYAN}byebac /status{Colors.ENDC}\n")
-    except subprocess.CalledProcessError as e:
-        print(f"\n{Colors.FAIL}❌ Agent execution failed with error code {e.returncode}{Colors.ENDC}\n")
+        tail_buf = []
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            print(line, end="")
+            tail_buf.append(line.rstrip("\n"))
+            if len(tail_buf) > 80:
+                tail_buf.pop(0)
+        rc = proc.wait()
+        if rc == 0:
+            print(f"\n{Colors.BOLD}{Colors.OKGREEN}✅ Agent execution completed!{Colors.ENDC}")
+            print(f"Check the report with: {Colors.OKCYAN}byebac /status{Colors.ENDC}\n")
+        else:
+            print(f"\n{Colors.FAIL}❌ Agent execution failed with error code {rc}{Colors.ENDC}\n")
+            if tail_buf:
+                print(f"{Colors.BOLD}Agent stdout (last {min(len(tail_buf), 40)} lines):{Colors.ENDC}")
+                for ln in tail_buf[-40:]:
+                    print(f"  {ln}")
+                print()
+            # Show latest log tail so failure reason is visible in CLI output.
+            try:
+                log_path = base_dir / "ai_agent" / "runs" / "logs" / "agent.log"
+                if log_path.exists():
+                    lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                    tail = lines[-25:] if len(lines) > 25 else lines
+                    if tail:
+                        print(f"{Colors.BOLD}Last log lines ({log_path}):{Colors.ENDC}")
+                        for ln in tail:
+                            print(f"  {ln}")
+                        print()
+                else:
+                    print(f"{Colors.WARNING}Log file not found: {log_path}{Colors.ENDC}\n")
+            except Exception as log_err:
+                print(f"{Colors.WARNING}Could not read agent log: {log_err}{Colors.ENDC}\n")
     except KeyboardInterrupt:
         print(f"\n{Colors.WARNING}⚠️  Agent execution interrupted by user{Colors.ENDC}\n")
     finally:
@@ -619,7 +704,7 @@ def run_agent():
         os.chdir(original_dir)
 
 def open_report(date_str=None):
-    """Open specific report or latest"""
+    """Print latest/specific report paths (command: /report [date])."""
     print_banner()
     
     base_dir = Path(__file__).parent
@@ -657,7 +742,7 @@ def open_report(date_str=None):
     print()
 
 def clean_artifacts():
-    """Clean all test artifacts and old reports"""
+    """Delete generated artifacts and reports (command: /clean)."""
     print_banner()
     print(f"\n{Colors.BOLD}{Colors.WARNING}🧹 Artifact Cleanup Utility{Colors.ENDC}\n")
     
@@ -737,7 +822,7 @@ def clean_artifacts():
         print(f"\n{Colors.FAIL}❌ Cleanup failed: {e}{Colors.ENDC}\n")
 
 def main():
-    """Main CLI entry point"""
+    """Parse command arguments and route to the matching handler."""
     parser = argparse.ArgumentParser(
         description='BYE BAC - Broken Access Control Detection CLI',
         add_help=False

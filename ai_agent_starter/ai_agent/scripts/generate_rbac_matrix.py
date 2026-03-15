@@ -1,14 +1,9 @@
 import pandas as pd
-import os
 
 # Load data
 roles = pd.read_csv('ai_agent/data/roles.csv')
 permissions = pd.read_csv('ai_agent/data/permissions.csv')
-# Be tolerant to filename variants: role_permissions.csv vs role_permission.csv
-_rp_path = 'ai_agent/data/role_permissions.csv'
-if not os.path.exists(_rp_path):
-    _rp_path = 'ai_agent/data/role_permission.csv'
-role_perms = pd.read_csv(_rp_path)
+role_perms = pd.read_csv('ai_agent/data/role_permission.csv')
 
 # Join tables
 rbac = (role_perms

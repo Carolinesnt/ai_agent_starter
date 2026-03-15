@@ -5,6 +5,7 @@ pyyaml>=6.0
 pandas>=2.0.0
 python-dotenv>=1.0.0
 rich>=13.0.0  # console output
-google-generativeai>=0.8.0  # optional, for Gemini provider (supports newer models)
+google-generativeai>=0.8.0  # optional, for Gemini provider (deprecated, fallback)
+google-genai>=0.2.0  # optional, for Gemini provider (new API, preferred)
 pyfiglet>=0.8.post1  # ASCII banner
 

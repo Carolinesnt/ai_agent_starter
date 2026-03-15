@@ -1,0 +1,212 @@
+================================================================================
+SELF-CURATED DATASET
+BYE BAC: AI-Powered Broken Access Control Detection Agent
+================================================================================
+
+This document describes the self-curated dataset used in the study. The dataset
+was created by the authors—it is NOT from an internal ESS application, a real
+company backend, or any production system. It is a self-constructed, author-
+created experimental dataset and research test environment.
+
+--------------------------------------------------------------------------------
+1. DATASET OVERVIEW
+--------------------------------------------------------------------------------
+
+The dataset supports automated Broken Access Control (BAC) testing of
+RBAC-based REST APIs. It consists of:
+
+  (A) API specification and schema (OpenAPI)
+  (B) Role and permission definitions (RBAC master tables)
+  (C) Role–permission mapping and derived matrix
+  (D) Authorization policy (expected allow/deny rules)
+
+All components were designed and curated by the authors for the BYE BAC agent.
+The API specification, roles, permissions, and RBAC matrix were created or
+curated by the authors for the experimental environment. No pre-existing
+public BAC dataset was used as the primary source.
+
+Correct terminology for the manuscript and submissions:
+  - self-curated dataset
+  - self-constructed dataset
+  - author-created experimental dataset
+  - research test environment / synthetic research environment
+
+Do NOT use:
+  - internal ESS application / internal system
+  - real company backend / production system
+  - internal confidential system
+
+--------------------------------------------------------------------------------
+2. COMPONENT FILES AND SOURCES
+--------------------------------------------------------------------------------
+
+  File                    Format   Description and source
+  ----------------------- -------- -----------------------------------------------
+  openapi.json            JSON     OpenAPI 3.x specification: endpoints, methods,
+                                    request/response schemas. Source: authored by
+                                    the authors to describe the experimental REST
+                                    API used in the study (no production system).
+
+  roles.csv               CSV      Master list of roles (role_id, role_name,
+                                    role_desc). Source: defined by authors for
+                                    the test environment (e.g. Admin_HC, Employee,
+                                    Employee_2).
+
+  permissions.csv         CSV      Master list of permissions. Source: authored
+                                    by the authors to align with the designed
+                                    access control model.
+
+  role_permission.csv     CSV      Many-to-many mapping (role_id, permission_id).
+                                    Source: authored to reflect which
+                                    permissions each role holds in the experiment.
+
+  rbac_matrix.csv         CSV      Flattened role–permission matrix. Source:
+                                    derived from roles.csv, permissions.csv, and
+                                    role_permission.csv using
+                                    ai_agent/scripts/generate_rbac_matrix.py.
+
+  policy.yaml             YAML     Authorization oracle: per-role allowed/denied
+                                    endpoints and self-only rules. Source:
+                                    authored by the authors (ai_agent/config/).
+
+  auth.yaml               YAML     Authentication configuration: login endpoints
+                                    and credential mapping per role. Source:
+                                    authored for the study environment
+                                    (ai_agent/config/).
+
+--------------------------------------------------------------------------------
+3. ASSEMBLY PROCESS (DATA COLLECTION)
+--------------------------------------------------------------------------------
+
+  Step 1 – Roles and permissions
+  Roles and permissions were defined by the authors for the experimental API.
+  roles.csv and permissions.csv were created manually; role_permission.csv
+  was populated to assign permissions to each role.
+
+  Step 2 – RBAC matrix
+  The script generate_rbac_matrix.py was run to join roles, permissions, and
+  role_permission into a single flattened table (rbac_matrix.csv).
+
+  Step 3 – API specification
+  openapi.json was authored by the authors to describe the experimental REST
+  API’s paths, methods, and request/response schemas. It is the single source
+  for endpoint discovery and payload generation in the agent.
+
+  Step 4 – Policy and auth
+  policy.yaml and auth.yaml were written by the authors to define expected
+  authorization outcomes (allow/deny/self-only) and the login flow per role.
+
+  Step 5 – Validation
+  Dataset consistency was checked by running the agent’s /check command and
+  by ensuring that all role_id and permission_id references are consistent.
+
+--------------------------------------------------------------------------------
+4. USE IN THE STUDY
+--------------------------------------------------------------------------------
+
+The self-curated dataset is used to:
+
+  - Discover endpoints and generate test plans (from openapi.json and
+    rbac_matrix.csv).
+  - Resolve expected authorization outcomes (from policy.yaml).
+  - Authenticate as each role (from auth.yaml and environment credentials).
+  - Label results as TP/TN/FP/FN by comparing observed HTTP responses to
+    the policy (expected status).
+
+The dataset was built to evaluate the agent’s ability to detect IDOR/BOLA
+in a controlled, author-created environment. No external BAC benchmark
+dataset or production system data was used.
+
+--------------------------------------------------------------------------------
+5. AVAILABILITY
+--------------------------------------------------------------------------------
+
+  - The dataset is included in the project repository (see README and
+    ai_agent/data/ and ai_agent/config/).
+  - If a DOI is assigned (e.g. Zenodo, Figshare), that DOI should be cited
+    as the location of the self-curated dataset.
+  - For submission, the component files (CSV, JSON, YAML) can be provided
+    as a supplemental archive; this legend should be included as the
+    descriptive legend and the file type designated as "dataset."
+
+--------------------------------------------------------------------------------
+6. FIGSHARE DESCRIPTION (USE AS-IS FOR UPLOAD)
+--------------------------------------------------------------------------------
+
+This item contains the self-curated dataset used in the study titled "Automated
+detection of broken access control in REST API endpoints using AI-based testing
+agents." The dataset was created by the authors to support automated security
+testing of REST API endpoints for detecting Insecure Direct Object Reference
+(IDOR) and Broken Object Level Authorization (BOLA) vulnerabilities.
+
+The dataset includes structured API and access-control artifacts designed for
+the experimental environment, including API specifications, role definitions,
+permission mappings, and RBAC relationships.
+
+Files included in this dataset:
+
+  - openapi.json: OpenAPI Specification describing the REST API endpoints and
+    operations used in the experiment.
+  - roles.csv: list of roles defined in the test environment.
+  - permissions.csv: list of permissions used in the access control model.
+  - role_permission.csv: mapping between roles and permissions.
+  - rbac_matrix.csv: curated RBAC matrix used to generate and analyze
+    authorization test scenarios.
+
+The dataset was manually designed and curated by the authors as part of the
+research environment for evaluating automated broken access control testing.
+Details of the dataset construction and experimental use are described in the
+Methods section of the associated manuscript.
+
+--------------------------------------------------------------------------------
+7. METHODS SECTION TEXT (SUGGESTED)
+--------------------------------------------------------------------------------
+
+Data Collection and Dataset Construction
+
+The dataset used in this study was self-constructed by the authors as part of
+an experimental REST API environment for evaluating broken access control
+detection. The dataset consists of an OpenAPI specification, role definitions,
+permission data, role-permission mappings, and an RBAC matrix representing
+authorization relationships across the designed endpoints. These artifacts
+were manually curated to support automated generation of authorization test
+scenarios and evaluation of IDOR/BOLA detection performance.
+
+The experimental dataset includes 28 critical endpoints selected from the
+designed API environment based on their use of object identifiers, role-
+dependent authorization logic, and potential exposure to unauthorized
+resource access.
+
+--------------------------------------------------------------------------------
+8. RESPONSE TO EDITOR (SUGGESTED)
+--------------------------------------------------------------------------------
+
+The self-curated dataset used in this study has been deposited in Figshare
+and is publicly accessible via DOI: [insert DOI]. The dataset was created
+by the authors as part of the experimental REST API environment used to
+evaluate automated broken access control detection. It includes the OpenAPI
+specification, roles, permissions, role-permission mappings, and RBAC matrix
+used to generate and assess authorization test scenarios. The Methods section
+of the manuscript has been revised to clarify how the dataset was constructed
+and used. The dataset is not from an internal or production system; it is an
+author-created, self-curated research dataset.
+
+--------------------------------------------------------------------------------
+9. METHODS SECTION PARAGRAPH (SHORT FORM)
+--------------------------------------------------------------------------------
+
+"We used a self-curated dataset comprising (1) an OpenAPI specification
+(openapi.json) describing the experimental API's endpoints and schemas;
+(2) RBAC master tables (roles.csv, permissions.csv, role_permission.csv)
+and a derived role–permission matrix (rbac_matrix.csv); and (3) an
+authorization policy (policy.yaml) and authentication configuration
+(auth.yaml). Roles and permissions were defined by the authors for the
+experimental environment; the role–permission mapping and matrix were
+assembled and validated programmatically. The OpenAPI and policy files
+were authored to reflect the designed API surface and expected
+allow/deny behavior. Data collection and assembly are documented in the
+supplemental dataset legend (Self-curated dataset)."
+
+================================================================================
+End of legend. Self-curated dataset. BYE BAC project.
+================================================================================

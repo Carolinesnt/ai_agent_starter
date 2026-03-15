@@ -1,4 +1,3 @@
 role_id,role_name,role_desc
-1,Admin_HC,Human Capital Admin Role
-2,Employee,Employee Role with limited permissions
-13,Uji Coba Update,Ini Testing Update
+1,Admin,Administrator with full system access and permissions
+2,Employee,Standard employee with limited access to own resources only

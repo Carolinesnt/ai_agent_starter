@@ -1,2534 +1,1999 @@
 {
-  "openapi": "3.0.0",
+  "openapi": "3.0.3",
   "info": {
-    "title": "Human Capital Management API",
-    "description": "API untuk sistem manajemen Human Capital dengan Role-Based Access Control (RBAC). Mendukung manajemen data karyawan, perubahan data, consent, dan administrasi RBAC.",
+    "title": "BAC Testing API - IDOR & Privilege Escalation Lab",
+    "description": "Backend API untuk testing IDOR (Insecure Direct Object Reference) vulnerability:\n- **Horizontal IDOR**: Access control bypass antar user dengan role sama\n- **Vertical Escalation**: Privilege escalation dari employee ke admin\n\n**Authentication:**\n- Menggunakan JWT (JSON Web Token)\n- Access Token: Valid 24 jam\n- Refresh Token: Valid 7 hari\n- Format: `Authorization: Bearer <access_token>`\n\n**Test Users:**\n- Admin: `admin` / `admin123` (ID: 1)\n- Employee1: `employee1` / `employee123` (ID: 2) - Attacker\n- Employee2: `employee2` / `employee123` (ID: 3) - Victim\n",
     "version": "1.0.0",
     "contact": {
-      "name": "API Support",
-      "email": "support@hcm.example.com"
+      "name": "BAC Security Lab"
     }
   },
   "servers": [
     {
-      "url": "https://api.hcm.example.com/v1",
-      "description": "Production server"
-    },
-    {
-      "url": "https://staging-api.hcm.example.com/v1",
-      "description": "Staging server"
-    },
-    {
-      "url": "http://localhost:8080/v1",
-      "description": "Development server"
-    }
-  ],
-  "security": [
-    {
-      "BearerAuth": []
+      "url": "http://localhost:8000/api",
+      "description": "Local Development Server"
     }
   ],
   "tags": [
     {
-      "name": "Employee Change Request",
-      "description": "Endpoint untuk mengelola permintaan perubahan data karyawan"
-    },
-    {
-      "name": "Attachments",
-      "description": "Endpoint untuk mengelola lampiran dokumen"
-    },
-    {
-      "name": "PDF Export",
-      "description": "Endpoint untuk ekspor data ke PDF"
-    },
-    {
-      "name": "Consent Management",
-      "description": "Endpoint untuk mengelola consent karyawan"
-    },
-    {
-      "name": "Roles",
-      "description": "Endpoint untuk manajemen role RBAC"
-    },
-    {
-      "name": "Permissions",
-      "description": "Endpoint untuk manajemen permission RBAC"
+      "name": "Authentication",
+      "description": "Login, logout, dan profile endpoints"
     },
     {
       "name": "Users",
-      "description": "Endpoint untuk manajemen user dan role assignment"
+      "description": "User management (Admin only untuk list/delete, Owner/Admin untuk detail/edit)"
+    },
+    {
+      "name": "Documents",
+      "description": "Document management (Owner/Admin)"
+    },
+    {
+      "name": "Payroll",
+      "description": "Payroll management (Admin only untuk list/create, Owner/Admin untuk detail)"
+    },
+    {
+      "name": "Leaves",
+      "description": "Leave request management (Owner/Admin)"
+    },
+    {
+      "name": "Admin",
+      "description": "Admin-only endpoints (dashboard, audit logs, user creation)"
     }
   ],
-  "paths": {
-    "/employee/change-request": {
-      "get": {
-        "tags": ["Employee Change Request"],
-        "summary": "Get all change requests",
-        "description": "Mendapatkan daftar semua permintaan perubahan data karyawan. Employee hanya melihat request miliknya, Admin_HC melihat semua.",
-        "operationId": "getChangeRequests",
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "description": "Filter berdasarkan status (pending, approved, rejected)",
-            "schema": {
-              "type": "string",
-              "enum": ["pending", "approved", "rejected"]
-            }
-          },
-          {
-            "name": "page",
-            "in": "query",
-            "description": "Nomor halaman untuk pagination",
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Jumlah data per halaman",
-            "schema": {
-              "type": "integer",
-              "default": 10
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/ChangeRequest"
-                      }
-                    },
-                    "pagination": {
-                      "$ref": "#/components/schemas/Pagination"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      },
-      "post": {
-        "tags": ["Employee Change Request"],
-        "summary": "Create new change request",
-        "description": "Membuat permintaan perubahan data karyawan baru. Hanya Employee yang bisa membuat request.",
-        "operationId": "createChangeRequest",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChangeRequestInput"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Change request created successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Change request created successfully"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/ChangeRequest"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/change-request/{id_change_request}": {
-      "get": {
-        "tags": ["Employee Change Request"],
-        "summary": "Get change request by ID",
-        "description": "Mendapatkan detail permintaan perubahan data berdasarkan ID",
-        "operationId": "getChangeRequestById",
-        "parameters": [
-          {
-            "name": "id_change_request",
-            "in": "path",
-            "required": true,
-            "description": "ID dari change request",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/ChangeRequest"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      },
-      "put": {
-        "tags": ["Employee Change Request"],
-        "summary": "Update change request",
-        "description": "Update permintaan perubahan data. Hanya Employee pemilik request yang bisa update.",
-        "operationId": "updateChangeRequest",
-        "parameters": [
-          {
-            "name": "id_change_request",
-            "in": "path",
-            "required": true,
-            "description": "ID dari change request",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChangeRequestInput"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Change request updated successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Change request updated successfully"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/ChangeRequest"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      },
-      "delete": {
-        "tags": ["Employee Change Request"],
-        "summary": "Delete change request",
-        "description": "Hapus permintaan perubahan data. Hanya Employee pemilik request yang bisa delete.",
-        "operationId": "deleteChangeRequest",
-        "parameters": [
-          {
-            "name": "id_change_request",
-            "in": "path",
-            "required": true,
-            "description": "ID dari change request",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Change request deleted successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Change request deleted successfully"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/update-histories/{id_change_request}": {
-      "get": {
-        "tags": ["Employee Change Request"],
-        "summary": "Get update histories",
-        "description": "Mendapatkan riwayat update dari change request",
-        "operationId": "getUpdateHistories",
-        "parameters": [
-          {
-            "name": "id_change_request",
-            "in": "path",
-            "required": true,
-            "description": "ID dari change request",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/UpdateHistory"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/attachments/parent/{parent_id}/item/{item_id}/preview": {
-      "get": {
-        "tags": ["Attachments"],
-        "summary": "Preview attachment by parent and item ID",
-        "description": "Preview lampiran dokumen. Hanya Employee yang bisa akses.",
-        "operationId": "previewAttachmentByParent",
-        "parameters": [
-          {
-            "name": "parent_id",
-            "in": "path",
-            "required": true,
-            "description": "ID dari parent (change request)",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "item_id",
-            "in": "path",
-            "required": true,
-            "description": "ID dari attachment item",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "image/*": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              },
-              "application/pdf": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/attachments/parent/{parent_id}/item/{item_id}/download": {
-      "get": {
-        "tags": ["Attachments"],
-        "summary": "Download attachment by parent and item ID",
-        "description": "Download lampiran dokumen. Hanya Employee yang bisa akses.",
-        "operationId": "downloadAttachmentByParent",
-        "parameters": [
-          {
-            "name": "parent_id",
-            "in": "path",
-            "required": true,
-            "description": "ID dari parent (change request)",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "item_id",
-            "in": "path",
-            "required": true,
-            "description": "ID dari attachment item",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "File downloaded successfully",
-            "content": {
-              "application/octet-stream": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/attachments/{item_id}/preview": {
-      "get": {
-        "tags": ["Attachments"],
-        "summary": "Preview attachment by item ID",
-        "description": "Preview lampiran dokumen berdasarkan item ID",
-        "operationId": "previewAttachment",
-        "parameters": [
-          {
-            "name": "item_id",
-            "in": "path",
-            "required": true,
-            "description": "ID dari attachment item",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "image/*": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              },
-              "application/pdf": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/attachments/{item_id}/download": {
-      "get": {
-        "tags": ["Attachments"],
-        "summary": "Download attachment",
-        "description": "Download lampiran dokumen",
-        "operationId": "downloadAttachment",
-        "parameters": [
-          {
-            "name": "item_id",
-            "in": "path",
-            "required": true,
-            "description": "ID dari attachment item",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "File downloaded successfully",
-            "content": {
-              "application/octet-stream": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/attachments/{item_id}/information": {
-      "get": {
-        "tags": ["Attachments"],
-        "summary": "Get attachment information",
-        "description": "Mendapatkan informasi detail attachment",
-        "operationId": "getAttachmentInfo",
-        "parameters": [
-          {
-            "name": "item_id",
-            "in": "path",
-            "required": true,
-            "description": "ID dari attachment item",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/Attachment"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/attachments/{item_id}/delete": {
-      "delete": {
-        "tags": ["Attachments"],
-        "summary": "Delete attachment",
-        "description": "Hapus lampiran dokumen",
-        "operationId": "deleteAttachment",
-        "parameters": [
-          {
-            "name": "item_id",
-            "in": "path",
-            "required": true,
-            "description": "ID dari attachment item",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Attachment deleted successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Attachment deleted successfully"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/attachments/change-request/{id_change_request}": {
-      "post": {
-        "tags": ["Attachments"],
-        "summary": "Upload attachment for change request",
-        "description": "Upload lampiran untuk change request",
-        "operationId": "uploadAttachment",
-        "parameters": [
-          {
-            "name": "id_change_request",
-            "in": "path",
-            "required": true,
-            "description": "ID dari change request",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "file": {
-                    "type": "string",
-                    "format": "binary",
-                    "description": "File to upload"
-                  },
-                  "description": {
-                    "type": "string",
-                    "description": "Deskripsi file"
-                  }
-                },
-                "required": ["file"]
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "File uploaded successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "File uploaded successfully"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/Attachment"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/pdf-export": {
-      "post": {
-        "tags": ["PDF Export"],
-        "summary": "Export employee data to PDF",
-        "description": "Export data karyawan ke format PDF. Hanya Employee yang bisa export.",
-        "operationId": "exportPDF",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "employee_id": {
-                    "type": "string",
-                    "description": "ID karyawan yang akan di-export"
-                  },
-                  "include_history": {
-                    "type": "boolean",
-                    "description": "Include change request history"
-                  },
-                  "date_range": {
-                    "type": "object",
-                    "properties": {
-                      "start_date": {
-                        "type": "string",
-                        "format": "date"
-                      },
-                      "end_date": {
-                        "type": "string",
-                        "format": "date"
-                      }
-                    }
-                  }
-                },
-                "required": ["employee_id"]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "PDF generated successfully",
-            "content": {
-              "application/pdf": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/consents/active": {
-      "get": {
-        "tags": ["Consent Management"],
-        "summary": "Get active consents",
-        "description": "Mendapatkan daftar consent yang aktif. Hanya Admin_HC yang bisa akses.",
-        "operationId": "getActiveConsents",
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/Consent"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/consents/status": {
-      "get": {
-        "tags": ["Consent Management"],
-        "summary": "Get consent status",
-        "description": "Mendapatkan status consent berdasarkan filter. Hanya Admin_HC yang bisa akses.",
-        "operationId": "getConsentStatus",
-        "parameters": [
-          {
-            "name": "employee_id",
-            "in": "query",
-            "description": "Filter by employee ID",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "consent_type",
-            "in": "query",
-            "description": "Filter by consent type",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/ConsentStatus"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/consents": {
-      "post": {
-        "tags": ["Consent Management"],
-        "summary": "Create new consent",
-        "description": "Membuat consent baru. Hanya Admin_HC yang bisa akses.",
-        "operationId": "createConsent",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConsentInput"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Consent created successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Consent created successfully"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/Consent"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/consents/{id_consent}": {
-      "put": {
-        "tags": ["Consent Management"],
-        "summary": "Update consent",
-        "description": "Update consent. Hanya Admin_HC yang bisa akses.",
-        "operationId": "updateConsent",
-        "parameters": [
-          {
-            "name": "id_consent",
-            "in": "path",
-            "required": true,
-            "description": "ID dari consent",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConsentInput"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Consent updated successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Consent updated successfully"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/Consent"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/consents/approve": {
-      "post": {
-        "tags": ["Consent Management"],
-        "summary": "Approve consent",
-        "description": "Approve consent request. Hanya Admin_HC yang bisa akses.",
-        "operationId": "approveConsent",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "id_consent": {
-                    "type": "string",
-                    "description": "ID consent yang akan di-approve"
-                  },
-                  "notes": {
-                    "type": "string",
-                    "description": "Catatan approval"
-                  }
-                },
-                "required": ["id_consent"]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Consent approved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Consent approved successfully"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/Consent"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/employee/consents/list": {
-      "get": {
-        "tags": ["Consent Management"],
-        "summary": "Get all consents",
-        "description": "Mendapatkan daftar semua consent. Hanya Admin_HC yang bisa akses.",
-        "operationId": "getAllConsents",
-        "parameters": [
-          {
-            "name": "page",
-            "in": "query",
-            "description": "Nomor halaman",
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Jumlah data per halaman",
-            "schema": {
-              "type": "integer",
-              "default": 10
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/Consent"
-                      }
-                    },
-                    "pagination": {
-                      "$ref": "#/components/schemas/Pagination"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/roles": {
-      "get": {
-        "tags": ["Roles"],
-        "summary": "Get all roles",
-        "description": "Mendapatkan daftar semua role. Hanya Admin_HC yang bisa akses.",
-        "operationId": "getAllRoles",
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/Role"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      },
-      "post": {
-        "tags": ["Roles"],
-        "summary": "Create new role",
-        "description": "Membuat role baru. Hanya Admin_HC yang bisa akses.",
-        "operationId": "createRole",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RoleInput"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Role created successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Role created successfully"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/Role"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/role/{id_role}": {
-      "get": {
-        "tags": ["Roles"],
-        "summary": "Get role by ID",
-        "description": "Mendapatkan detail role berdasarkan ID. Hanya Admin_HC yang bisa akses.",
-        "operationId": "getRoleById",
-        "parameters": [
-          {
-            "name": "id_role",
-            "in": "path",
-            "required": true,
-            "description": "ID dari role",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/Role"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      },
-      "put": {
-        "tags": ["Roles"],
-        "summary": "Update role",
-        "description": "Update role. Hanya Admin_HC yang bisa akses.",
-        "operationId": "updateRole",
-        "parameters": [
-          {
-            "name": "id_role",
-            "in": "path",
-            "required": true,
-            "description": "ID dari role",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RoleInput"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Role updated successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Role updated successfully"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/Role"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      },
-      "delete": {
-        "tags": ["Roles"],
-        "summary": "Delete role",
-        "description": "Hapus role. Hanya Admin_HC yang bisa akses.",
-        "operationId": "deleteRole",
-        "parameters": [
-          {
-            "name": "id_role",
-            "in": "path",
-            "required": true,
-            "description": "ID dari role",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Role deleted successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Role deleted successfully"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/role/{id_role}/permissions": {
-      "post": {
-        "tags": ["Roles"],
-        "summary": "Assign permissions to role",
-        "description": "Assign permission ke role. Hanya Admin_HC yang bisa akses.",
-        "operationId": "assignPermissionsToRole",
-        "parameters": [
-          {
-            "name": "id_role",
-            "in": "path",
-            "required": true,
-            "description": "ID dari role",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "permission_ids": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    },
-                    "description": "Array of permission IDs"
-                  }
-                },
-                "required": ["permission_ids"]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Permissions assigned successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Permissions assigned successfully"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/Role"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/permissions": {
-      "get": {
-        "tags": ["Permissions"],
-        "summary": "Get all permissions",
-        "description": "Mendapatkan daftar semua permission. Hanya Admin_HC yang bisa akses.",
-        "operationId": "getAllPermissions",
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/Permission"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      },
-      "post": {
-        "tags": ["Permissions"],
-        "summary": "Create new permission",
-        "description": "Membuat permission baru. Hanya Admin_HC yang bisa akses.",
-        "operationId": "createPermission",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PermissionInput"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Permission created successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Permission created successfully"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/Permission"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/permission/{id_permission}": {
-      "put": {
-        "tags": ["Permissions"],
-        "summary": "Update permission",
-        "description": "Update permission. Hanya Admin_HC yang bisa akses.",
-        "operationId": "updatePermission",
-        "parameters": [
-          {
-            "name": "id_permission",
-            "in": "path",
-            "required": true,
-            "description": "ID dari permission",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PermissionInput"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Permission updated successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Permission updated successfully"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/Permission"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      },
-      "delete": {
-        "tags": ["Permissions"],
-        "summary": "Delete permission",
-        "description": "Hapus permission. Hanya Admin_HC yang bisa akses.",
-        "operationId": "deletePermission",
-        "parameters": [
-          {
-            "name": "id_permission",
-            "in": "path",
-            "required": true,
-            "description": "ID dari permission",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Permission deleted successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Permission deleted successfully"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/users": {
-      "get": {
-        "tags": ["Users"],
-        "summary": "Get all users",
-        "description": "Mendapatkan daftar semua user. Hanya Admin_HC yang bisa akses.",
-        "operationId": "getAllUsers",
-        "parameters": [
-          {
-            "name": "role",
-            "in": "query",
-            "description": "Filter by role",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "page",
-            "in": "query",
-            "description": "Nomor halaman",
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Jumlah data per halaman",
-            "schema": {
-              "type": "integer",
-              "default": 10
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/User"
-                      }
-                    },
-                    "pagination": {
-                      "$ref": "#/components/schemas/Pagination"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/user/{user_id}": {
-      "get": {
-        "tags": ["Users"],
-        "summary": "Get user by ID",
-        "description": "Mendapatkan detail user berdasarkan ID. Hanya Admin_HC yang bisa akses.",
-        "operationId": "getUserById",
-        "parameters": [
-          {
-            "name": "user_id",
-            "in": "path",
-            "required": true,
-            "description": "ID dari user",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/User"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    },
-    "/user/{user_id}/roles": {
-      "post": {
-        "tags": ["Users"],
-        "summary": "Assign roles to user",
-        "description": "Assign role ke user. Hanya Admin_HC yang bisa akses.",
-        "operationId": "assignRolesToUser",
-        "parameters": [
-          {
-            "name": "user_id",
-            "in": "path",
-            "required": true,
-            "description": "ID dari user",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "role_ids": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    },
-                    "description": "Array of role IDs"
-                  }
-                },
-                "required": ["role_ids"]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Roles assigned successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "success"
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Roles assigned successfully"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/User"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "403": {
-            "$ref": "#/components/responses/ForbiddenError"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFoundError"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
-      }
-    }
-  },
   "components": {
     "securitySchemes": {
       "BearerAuth": {
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "JWT Authorization header menggunakan Bearer scheme. Contoh: \"Authorization: Bearer {token}\""
+        "description": "JWT Access Token didapat dari endpoint `/api/auth/login`.\nFormat header: `Authorization: Bearer <access_token>`\nToken expires dalam 24 jam. Gunakan refresh token untuk mendapatkan access token baru."
       }
     },
     "schemas": {
-      "ChangeRequest": {
+      "User": {
         "type": "object",
         "properties": {
-          "id_change_request": {
-            "type": "string",
-            "example": "CR-2026-0001"
+          "id": {
+            "type": "integer",
+            "example": 1
           },
-          "employee_id": {
+          "username": {
             "type": "string",
-            "example": "EMP-12345"
+            "example": "admin"
           },
-          "employee_name": {
+          "email": {
             "type": "string",
-            "example": "John Doe"
+            "example": "admin@company.com"
           },
-          "change_type": {
+          "role": {
             "type": "string",
-            "enum": ["personal_data", "contact", "address", "bank_account"],
-            "example": "personal_data"
+            "enum": ["admin", "employee"],
+            "example": "admin"
           },
-          "field_name": {
+          "created_at": {
             "type": "string",
-            "example": "phone_number"
+            "format": "date-time",
+            "example": "2025-01-15T10:30:00Z"
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["username", "password"],
+        "properties": {
+          "username": {
+            "type": "string",
+            "example": "admin"
           },
-          "old_value": {
+          "password": {
             "type": "string",
-            "example": "08123456789"
+            "format": "password",
+            "example": "admin123"
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "access": {
+            "type": "string",
+            "description": "JWT Access Token (expires in 24 hours)",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzA5ODQwNDAwLCJpYXQiOjE3MDk3NTQwMDAsImp0aSI6ImFiY2QxMjM0IiwidXNlcl9pZCI6MX0.signature"
           },
-          "new_value": {
+          "refresh": {
             "type": "string",
-            "example": "08987654321"
+            "description": "JWT Refresh Token (expires in 7 days)",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTcxMDM1ODgwMCwiaWF0IjoxNzA5NzU0MDAwLCJqdGkiOiJ4eXoxMjM0IiwidXNlcl9pZCI6MX0.signature"
+          },
+          "token": {
+            "type": "string",
+            "description": "Same as access (for backward compatibility)",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzA5ODQwNDAwLCJpYXQiOjE3MDk3NTQwMDAsImp0aSI6ImFiY2QxMjM0IiwidXNlcl9pZCI6MX0.signature"
+          },
+          "user_id": {
+            "type": "integer",
+            "example": 1
+          },
+          "username": {
+            "type": "string",
+            "example": "admin"
+          },
+          "role": {
+            "type": "string",
+            "example": "admin"
+          }
+        }
+      },
+      "UserCreate": {
+        "type": "object",
+        "required": ["username", "email", "password", "role"],
+        "properties": {
+          "username": {
+            "type": "string",
+            "example": "employee3"
+          },
+          "email": {
+            "type": "string",
+            "example": "employee3@company.com"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "example": "employee123"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["admin", "employee"],
+            "example": "employee"
+          }
+        }
+      },
+      "UserRoleUpdate": {
+        "type": "object",
+        "required": ["role"],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": ["admin", "employee"],
+            "example": "admin"
+          }
+        }
+      },
+      "Document": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1
+          },
+          "owner": {
+            "type": "integer",
+            "example": 2
+          },
+          "title": {
+            "type": "string",
+            "example": "Laporan Q1 Employee1"
+          },
+          "content": {
+            "type": "string",
+            "example": "Isi laporan Q1 milik employee1..."
+          },
+          "file_url": {
+            "type": "string",
+            "nullable": true,
+            "example": "/docs/emp1-q1.pdf"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2025-01-15T10:30:00Z"
+          }
+        }
+      },
+      "DocumentCreate": {
+        "type": "object",
+        "required": ["title", "content"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "example": "Laporan Q2"
+          },
+          "content": {
+            "type": "string",
+            "example": "Isi laporan Q2..."
+          },
+          "file_url": {
+            "type": "string",
+            "nullable": true,
+            "example": "/docs/q2.pdf"
+          }
+        }
+      },
+      "DocumentDownload": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "doc_id": {
+                "type": "integer",
+                "example": 1
+              },
+              "filename": {
+                "type": "string",
+                "example": "emp1-q1.pdf"
+              },
+              "file_url": {
+                "type": "string",
+                "example": "/docs/emp1-q1.pdf"
+              },
+              "size_kb": {
+                "type": "integer",
+                "example": 204
+              }
+            }
+          }
+        }
+      },
+      "Payroll": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1
+          },
+          "user": {
+            "type": "integer",
+            "example": 2
+          },
+          "salary": {
+            "type": "integer",
+            "format": "int64",
+            "example": 8000000
+          },
+          "bonus": {
+            "type": "integer",
+            "format": "int64",
+            "example": 500000
+          },
+          "month": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12,
+            "example": 1
+          },
+          "year": {
+            "type": "integer",
+            "example": 2025
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2025-01-15T10:30:00Z"
+          }
+        }
+      },
+      "PayrollCreate": {
+        "type": "object",
+        "required": ["user_id", "salary", "month", "year"],
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "example": 2
+          },
+          "salary": {
+            "type": "integer",
+            "format": "int64",
+            "example": 8000000
+          },
+          "bonus": {
+            "type": "integer",
+            "format": "int64",
+            "example": 500000
+          },
+          "month": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12,
+            "example": 1
+          },
+          "year": {
+            "type": "integer",
+            "example": 2025
+          }
+        }
+      },
+      "PayrollUpdate": {
+        "type": "object",
+        "properties": {
+          "salary": {
+            "type": "integer",
+            "format": "int64",
+            "example": 9000000
+          },
+          "bonus": {
+            "type": "integer",
+            "format": "int64",
+            "example": 1000000
+          },
+          "month": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12,
+            "example": 1
+          },
+          "year": {
+            "type": "integer",
+            "example": 2025
+          }
+        }
+      },
+      "Leave": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1
+          },
+          "user": {
+            "type": "integer",
+            "example": 2
           },
           "reason": {
             "type": "string",
-            "example": "Nomor lama sudah tidak aktif"
+            "example": "Keperluan keluarga"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "example": "2025-02-01"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "example": "2025-02-03"
           },
           "status": {
             "type": "string",
-            "enum": ["pending", "approved", "rejected"],
+            "enum": ["pending", "approved", "rejected", "cancelled"],
             "example": "pending"
           },
           "created_at": {
             "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "approved_by": {
-            "type": "string",
-            "nullable": true
-          },
-          "approved_at": {
-            "type": "string",
             "format": "date-time",
-            "nullable": true
+            "example": "2025-01-15T10:30:00Z"
           }
         }
       },
-      "ChangeRequestInput": {
+      "LeaveCreate": {
         "type": "object",
-        "required": ["change_type", "field_name", "new_value", "reason"],
+        "required": ["reason", "start_date", "end_date"],
         "properties": {
-          "change_type": {
-            "type": "string",
-            "enum": ["personal_data", "contact", "address", "bank_account"]
-          },
-          "field_name": {
-            "type": "string"
-          },
-          "new_value": {
-            "type": "string"
-          },
           "reason": {
-            "type": "string"
+            "type": "string",
+            "example": "Keperluan keluarga"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "example": "2025-02-01"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "example": "2025-02-03"
           }
         }
       },
-      "UpdateHistory": {
+      "LeaveStatusUpdate": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["approved", "rejected"],
+            "example": "approved"
+          }
+        }
+      },
+      "Dashboard": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "total_users": {
+                "type": "integer",
+                "example": 3
+              },
+              "total_documents": {
+                "type": "integer",
+                "example": 4
+              },
+              "total_leaves_pending": {
+                "type": "integer",
+                "example": 1
+              },
+              "total_leaves_approved": {
+                "type": "integer",
+                "example": 1
+              },
+              "total_leaves_rejected": {
+                "type": "integer",
+                "example": 0
+              },
+              "total_payroll_records": {
+                "type": "integer",
+                "example": 3
+              }
+            }
+          }
+        }
+      },
+      "AuditLog": {
         "type": "object",
         "properties": {
           "id": {
-            "type": "string"
-          },
-          "id_change_request": {
-            "type": "string"
-          },
-          "action": {
-            "type": "string",
-            "example": "created"
-          },
-          "performed_by": {
-            "type": "string"
-          },
-          "performed_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "notes": {
-            "type": "string"
-          },
-          "changes": {
-            "type": "object"
-          }
-        }
-      },
-      "Attachment": {
-        "type": "object",
-        "properties": {
-          "item_id": {
-            "type": "string",
-            "example": "ATT-2026-0001"
-          },
-          "parent_id": {
-            "type": "string",
-            "example": "CR-2026-0001"
-          },
-          "file_name": {
-            "type": "string",
-            "example": "ktp.pdf"
-          },
-          "file_type": {
-            "type": "string",
-            "example": "application/pdf"
-          },
-          "file_size": {
-            "type": "integer",
-            "example": 1024000
-          },
-          "description": {
-            "type": "string",
-            "example": "Scan KTP"
-          },
-          "uploaded_by": {
-            "type": "string"
-          },
-          "uploaded_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "url": {
-            "type": "string",
-            "format": "uri"
-          }
-        }
-      },
-      "Consent": {
-        "type": "object",
-        "properties": {
-          "id_consent": {
-            "type": "string",
-            "example": "CONS-2026-0001"
-          },
-          "employee_id": {
-            "type": "string",
-            "example": "EMP-12345"
-          },
-          "consent_type": {
-            "type": "string",
-            "example": "data_processing"
-          },
-          "consent_text": {
-            "type": "string",
-            "example": "Saya menyetujui pemrosesan data pribadi..."
-          },
-          "status": {
-            "type": "string",
-            "enum": ["pending", "approved", "rejected", "revoked"],
-            "example": "approved"
-          },
-          "given_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "expires_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "ConsentInput": {
-        "type": "object",
-        "required": ["employee_id", "consent_type", "consent_text"],
-        "properties": {
-          "employee_id": {
-            "type": "string"
-          },
-          "consent_type": {
-            "type": "string"
-          },
-          "consent_text": {
-            "type": "string"
-          },
-          "expires_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "ConsentStatus": {
-        "type": "object",
-        "properties": {
-          "employee_id": {
-            "type": "string"
-          },
-          "employee_name": {
-            "type": "string"
-          },
-          "consent_type": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "given_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "Role": {
-        "type": "object",
-        "properties": {
-          "role_id": {
-            "type": "string",
-            "example": "1"
-          },
-          "role_name": {
-            "type": "string",
-            "example": "Admin_HC"
-          },
-          "role_desc": {
-            "type": "string",
-            "example": "Human Capital Admin Role"
-          },
-          "permissions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Permission"
-            }
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "RoleInput": {
-        "type": "object",
-        "required": ["role_name", "role_desc"],
-        "properties": {
-          "role_name": {
-            "type": "string"
-          },
-          "role_desc": {
-            "type": "string"
-          }
-        }
-      },
-      "Permission": {
-        "type": "object",
-        "properties": {
-          "permission_id": {
-            "type": "string",
-            "example": "1"
-          },
-          "permission_code": {
-            "type": "string",
-            "example": "update_data_personal"
-          },
-          "permission_group": {
-            "type": "string",
-            "example": "Data Management"
-          },
-          "permission_desc": {
-            "type": "string",
-            "example": "Permission to update personal data"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "PermissionInput": {
-        "type": "object",
-        "required": ["permission_code", "permission_group", "permission_desc"],
-        "properties": {
-          "permission_code": {
-            "type": "string"
-          },
-          "permission_group": {
-            "type": "string"
-          },
-          "permission_desc": {
-            "type": "string"
-          }
-        }
-      },
-      "User": {
-        "type": "object",
-        "properties": {
-          "user_id": {
-            "type": "string",
-            "example": "USR-12345"
-          },
-          "username": {
-            "type": "string",
-            "example": "john.doe"
-          },
-          "email": {
-            "type": "string",
-            "format": "email",
-            "example": "john.doe@example.com"
-          },
-          "full_name": {
-            "type": "string",
-            "example": "John Doe"
-          },
-          "employee_id": {
-            "type": "string",
-            "example": "EMP-12345"
-          },
-          "roles": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Role"
-            }
-          },
-          "is_active": {
-            "type": "boolean",
-            "example": true
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "last_login": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          }
-        }
-      },
-      "Pagination": {
-        "type": "object",
-        "properties": {
-          "page": {
             "type": "integer",
             "example": 1
           },
-          "limit": {
+          "actor": {
             "type": "integer",
-            "example": 10
+            "example": 2
           },
-          "total_pages": {
-            "type": "integer",
-            "example": 5
+          "action": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "DELETE"],
+            "example": "GET"
           },
-          "total_items": {
+          "endpoint": {
+            "type": "string",
+            "example": "/api/users/1/"
+          },
+          "target_user": {
             "type": "integer",
-            "example": 47
+            "nullable": true,
+            "example": 1
+          },
+          "status_code": {
+            "type": "integer",
+            "example": 200
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2025-01-15T10:30:00Z"
           }
         }
       },
-      "Error": {
+      "AuditLogUser": {
         "type": "object",
         "properties": {
-          "status": {
-            "type": "string",
-            "example": "error"
+          "data": {
+            "type": "object",
+            "properties": {
+              "user_id": {
+                "type": "integer",
+                "example": 2
+              },
+              "username": {
+                "type": "string",
+                "example": "employee1"
+              },
+              "logs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AuditLog"
+                }
+              }
+            }
+          }
+        }
+      },
+      "SuccessResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object"
           },
           "message": {
             "type": "string",
-            "example": "An error occurred"
-          },
-          "error_code": {
+            "example": "Operation successful"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
             "type": "string",
-            "example": "ERR_001"
-          },
-          "details": {
-            "type": "object"
+            "example": "Error message"
+          }
+        }
+      },
+      "UnauthorizedError": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string",
+            "example": "Authentication credentials were not provided."
+          }
+        }
+      },
+      "ForbiddenError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "Forbidden"
+          }
+        }
+      },
+      "NotFoundError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "Not found"
+          }
+        }
+      },
+      "BadRequestError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "Invalid data provided"
+          }
+        }
+      },
+      "InternalServerError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "Internal server error"
           }
         }
       }
     },
     "responses": {
-      "UnauthorizedError": {
-        "description": "Authentication failed - Token tidak valid atau tidak ada",
+      "UnauthorizedResponse": {
+        "description": "Unauthorized - Token tidak valid atau tidak ada",
         "content": {
           "application/json": {
             "schema": {
-              "$ref": "#/components/schemas/Error"
-            },
-            "example": {
-              "status": "error",
-              "message": "Authentication required",
-              "error_code": "ERR_401"
+              "$ref": "#/components/schemas/UnauthorizedError"
             }
           }
         }
       },
-      "ForbiddenError": {
-        "description": "Access forbidden - User tidak memiliki permission untuk endpoint ini",
+      "ForbiddenResponse": {
+        "description": "Forbidden - User tidak punya akses ke resource ini",
         "content": {
           "application/json": {
             "schema": {
-              "$ref": "#/components/schemas/Error"
-            },
-            "example": {
-              "status": "error",
-              "message": "You don't have permission to access this resource",
-              "error_code": "ERR_403"
+              "$ref": "#/components/schemas/ForbiddenError"
             }
           }
         }
       },
-      "NotFoundError": {
-        "description": "Resource not found",
+      "NotFoundResponse": {
+        "description": "Not Found - Resource tidak ditemukan",
         "content": {
           "application/json": {
             "schema": {
-              "$ref": "#/components/schemas/Error"
-            },
-            "example": {
-              "status": "error",
-              "message": "Resource not found",
-              "error_code": "ERR_404"
+              "$ref": "#/components/schemas/NotFoundError"
             }
           }
         }
       },
-      "BadRequestError": {
-        "description": "Bad request - Data input tidak valid",
+      "BadRequestResponse": {
+        "description": "Bad Request - Data tidak valid",
         "content": {
           "application/json": {
             "schema": {
-              "$ref": "#/components/schemas/Error"
-            },
-            "example": {
-              "status": "error",
-              "message": "Invalid request data",
-              "error_code": "ERR_400",
-              "details": {
-                "field": "error description"
+              "$ref": "#/components/schemas/BadRequestError"
+            }
+          }
+        }
+      },
+      "InternalServerErrorResponse": {
+        "description": "Internal Server Error - Terjadi kesalahan pada server",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/InternalServerError"
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/auth/login/": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "[1] Login - Public",
+        "description": "Login dengan username & password, mendapatkan token untuk authentication",
+        "operationId": "login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
               }
             }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login berhasil",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestResponse"
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Invalid credentials"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/auth/logout/": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "[2] Logout - All Roles",
+        "description": "Revoke token user yang sedang login",
+        "operationId": "logout",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Logout berhasil",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Logged out successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/auth/me/": {
+      "get": {
+        "tags": ["Authentication"],
+        "summary": "[3] Get Current User Profile - All Roles",
+        "description": "Mendapatkan profil user yang sedang login",
+        "operationId": "getCurrentUser",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Profil user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/users/": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "[4] List All Users - Admin Only (Vertical BAC)",
+        "description": "List semua user dalam sistem\n- **Admin**: Bisa akses ✅\n- **Employee**: Forbidden ❌ (Vertical Escalation Target)\n",
+        "operationId": "listUsers",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "List semua user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/User"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/users/{user_id}/": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "[5] Get User Detail - Owner/Admin (Horizontal BAC)",
+        "description": "Melihat detail user tertentu\n- **Owner**: Bisa lihat dirinya sendiri ✅\n- **Admin**: Bisa lihat semua user ✅\n- **Employee lain**: Forbidden ❌ (Horizontal IDOR Target)\n",
+        "operationId": "getUserDetail",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Detail user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      },
+      "put": {
+        "tags": ["Users"],
+        "summary": "[6] Update User - Owner/Admin (Horizontal BAC)",
+        "description": "Edit data user tertentu\n- **Owner**: Bisa edit dirinya sendiri ✅\n- **Admin**: Bisa edit semua user ✅\n- **Employee lain**: Forbidden ❌ (Horizontal IDOR Target)\n",
+        "operationId": "updateUser",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "example": "newemail@company.com"
+                  },
+                  "username": {
+                    "type": "string",
+                    "example": "newusername"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "User updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/User"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "User updated successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Users"],
+        "summary": "[7] Delete User - Admin Only (Vertical BAC)",
+        "description": "Hapus user dari sistem\n- **Admin**: Bisa hapus semua user ✅\n- **Employee**: Forbidden ❌ (Vertical Escalation Target)\n",
+        "operationId": "deleteUser",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 3
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "User deleted successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/users/{user_id}/role/": {
+      "put": {
+        "tags": ["Users"],
+        "summary": "[8] Update User Role - Admin Only (Vertical BAC)",
+        "description": "Ubah role user (employee ↔ admin)\n- **Admin**: Bisa ubah role ✅\n- **Employee**: Forbidden ❌ (Vertical Escalation Target - Critical!)\n",
+        "operationId": "updateUserRole",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 2
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserRoleUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Role updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/User"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "User role updated successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/documents/": {
+      "post": {
+        "tags": ["Documents"],
+        "summary": "[9] Create Document - All Roles",
+        "description": "Buat dokumen baru (owner otomatis user yang login)",
+        "operationId": "createDocument",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Document created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Document"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Document created successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      },
+      "get": {
+        "tags": ["Documents"],
+        "summary": "[10] List Documents - All Roles (Own Only)",
+        "description": "List dokumen milik user yang sedang login",
+        "operationId": "listDocuments",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "List dokumen milik sendiri",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Document"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/documents/{doc_id}/": {
+      "get": {
+        "tags": ["Documents"],
+        "summary": "[11] Get Document Detail - Owner/Admin (Horizontal BAC)",
+        "description": "Lihat isi dokumen tertentu\n- **Owner**: Bisa lihat dokumen sendiri ✅\n- **Admin**: Bisa lihat semua dokumen ✅\n- **Employee lain**: Forbidden ❌ (Horizontal IDOR Target)\n",
+        "operationId": "getDocument",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "doc_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Detail dokumen",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Document"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      },
+      "put": {
+        "tags": ["Documents"],
+        "summary": "[12] Update Document - Owner/Admin (Horizontal BAC)",
+        "description": "Edit dokumen tertentu\n- **Owner**: Bisa edit dokumen sendiri ✅\n- **Admin**: Bisa edit semua dokumen ✅\n- **Employee lain**: Forbidden ❌ (Horizontal IDOR Target)\n",
+        "operationId": "updateDocument",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "doc_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Document updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Document"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Document updated successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Documents"],
+        "summary": "[13] Delete Document - Owner/Admin (Horizontal BAC)",
+        "description": "Hapus dokumen tertentu\n- **Owner**: Bisa hapus dokumen sendiri ✅\n- **Admin**: Bisa hapus semua dokumen ✅\n- **Employee lain**: Forbidden ❌ (Horizontal IDOR Target)\n",
+        "operationId": "deleteDocument",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "doc_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Document deleted successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/documents/{doc_id}/download/": {
+      "get": {
+        "tags": ["Documents"],
+        "summary": "[14] Download Document - Owner/Admin (Horizontal BAC)",
+        "description": "Download file dokumen\n- **Owner**: Bisa download dokumen sendiri ✅\n- **Admin**: Bisa download semua dokumen ✅\n- **Employee lain**: Forbidden ❌ (Horizontal IDOR Target)\n",
+        "operationId": "downloadDocument",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "doc_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document download info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDownload"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/payroll/": {
+      "get": {
+        "tags": ["Payroll"],
+        "summary": "[15] List All Payroll - Admin Only (Vertical BAC)",
+        "description": "List semua data payroll\n- **Admin**: Bisa lihat semua payroll ✅\n- **Employee**: Forbidden ❌ (Vertical Escalation Target)\n",
+        "operationId": "listPayroll",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "List semua payroll",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Payroll"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Payroll"],
+        "summary": "[16] Create Payroll - Admin Only (Vertical BAC)",
+        "description": "Tambah data payroll baru\n- **Admin**: Bisa create payroll ✅\n- **Employee**: Forbidden ❌ (Vertical Escalation Target)\n",
+        "operationId": "createPayroll",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PayrollCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Payroll created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Payroll"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Payroll created successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/payroll/{user_id}/": {
+      "get": {
+        "tags": ["Payroll"],
+        "summary": "[17] Get User Payroll - Owner/Admin (Horizontal BAC)",
+        "description": "Lihat gaji user tertentu\n- **Owner**: Bisa lihat gaji sendiri ✅\n- **Admin**: Bisa lihat gaji semua user ✅\n- **Employee lain**: Forbidden ❌ (Horizontal IDOR Target - Sensitive!)\n",
+        "operationId": "getUserPayroll",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 2
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payroll data user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Payroll"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      },
+      "put": {
+        "tags": ["Payroll"],
+        "summary": "[18] Update User Payroll - Admin Only (Vertical BAC)",
+        "description": "Edit gaji user tertentu\n- **Admin**: Bisa edit gaji semua user ✅\n- **Employee**: Forbidden ❌ (Vertical Escalation Target - Critical!)\n",
+        "operationId": "updateUserPayroll",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 2
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PayrollUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Payroll updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Payroll"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Payroll updated successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/leaves/": {
+      "post": {
+        "tags": ["Leaves"],
+        "summary": "[19] Create Leave Request - All Roles",
+        "description": "Ajukan cuti baru (user otomatis yang login, status pending)",
+        "operationId": "createLeave",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaveCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Leave request submitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Leave"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Leave request submitted successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      },
+      "get": {
+        "tags": ["Leaves"],
+        "summary": "[20] List Leaves - All Roles (Own Only)",
+        "description": "List pengajuan cuti milik user yang sedang login",
+        "operationId": "listLeaves",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "List cuti milik sendiri",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Leave"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/leaves/{leave_id}/": {
+      "get": {
+        "tags": ["Leaves"],
+        "summary": "[21] Get Leave Detail - Owner/Admin (Horizontal BAC)",
+        "description": "Lihat detail pengajuan cuti\n- **Owner**: Bisa lihat cuti sendiri ✅\n- **Admin**: Bisa lihat semua cuti ✅\n- **Employee lain**: Forbidden ❌ (Horizontal IDOR Target)\n",
+        "operationId": "getLeave",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "leave_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Detail cuti",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Leave"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      },
+      "put": {
+        "tags": ["Leaves"],
+        "summary": "[22] Update Leave - Owner/Admin (Horizontal BAC)",
+        "description": "Edit pengajuan cuti (hanya jika status pending)\n- **Owner**: Bisa edit cuti sendiri ✅\n- **Admin**: Bisa edit semua cuti ✅\n- **Employee lain**: Forbidden ❌ (Horizontal IDOR Target)\n",
+        "operationId": "updateLeave",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "leave_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaveCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Leave updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Leave"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Leave request updated successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cannot edit non-pending leave atau validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/leaves/{leave_id}/approve/": {
+      "put": {
+        "tags": ["Leaves"],
+        "summary": "[23] Approve/Reject Leave - Admin Only (Vertical BAC)",
+        "description": "Approve atau reject pengajuan cuti\n- **Admin**: Bisa approve/reject ✅\n- **Employee**: Forbidden ❌ (Vertical Escalation Target)\n",
+        "operationId": "approveLeave",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "leave_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaveStatusUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Leave status updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Leave"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Leave request approved"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequestResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/leaves/{leave_id}/cancel/": {
+      "put": {
+        "tags": ["Leaves"],
+        "summary": "[24] Cancel Leave - Owner/Admin (Horizontal BAC)",
+        "description": "Cancel pengajuan cuti (hanya jika status pending)\n- **Owner**: Bisa cancel cuti sendiri ✅\n- **Admin**: Bisa cancel semua cuti ✅\n- **Employee lain**: Forbidden ❌ (Horizontal IDOR Target)\n",
+        "operationId": "cancelLeave",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "leave_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Leave cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Leave"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Leave request cancelled"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cannot cancel non-pending leave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/admin/dashboard/": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "[25] Admin Dashboard - Admin Only (Vertical BAC)",
+        "description": "Statistik semua user dan data dalam sistem\n- **Admin**: Bisa akses ✅\n- **Employee**: Forbidden ❌ (Vertical Escalation Target)\n",
+        "operationId": "adminDashboard",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Dashboard statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dashboard"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/admin/audit-logs/": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "[26] List All Audit Logs - Admin Only (Vertical BAC)",
+        "description": "Log aktivitas semua user (100 terbaru)\n- **Admin**: Bisa akses ✅\n- **Employee**: Forbidden ❌ (Vertical Escalation Target)\n",
+        "operationId": "adminAuditLogs",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "List audit logs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AuditLog"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/admin/audit-logs/{user_id}/": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "[27] Get User Audit Logs - Admin Only (Vertical + Horizontal BAC)",
+        "description": "Log aktivitas user tertentu\n- **Admin**: Bisa akses ✅\n- **Employee**: Forbidden ❌ (Vertical Escalation Target)\n- Jika berhasil bypass vertical, ada Horizontal IDOR juga (user lain)\n",
+        "operationId": "adminUserAuditLogs",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 2
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User audit logs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditLogUser"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
+          }
+        }
+      }
+    },
+    "/admin/users/": {
+      "post": {
+        "tags": ["Admin"],
+        "summary": "[28] Create New User - Admin Only (Vertical BAC)",
+        "description": "Buat user baru (admin bisa set role)\n- **Admin**: Bisa create user ✅\n- **Employee**: Forbidden ❌ (Vertical Escalation Target)\n",
+        "operationId": "adminCreateUser",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/User"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "User created successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Username already exists atau validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerErrorResponse"
           }
         }
       }

@@ -40,14 +40,11 @@ def has_id_param(path: str) -> bool:
     return False
 
 def load_policy(config_dir: str) -> dict:
-    """Load policy from YAML or JSON; prefer YAML if both exist."""
+    """Load canonical policy from YAML only."""
     ypath = os.path.join(config_dir, "policy.yaml")
-    jpath = os.path.join(config_dir, "policy.json")
     if os.path.exists(ypath):
         return load_yaml(ypath)
-    if os.path.exists(jpath):
-        return load_json(jpath)
-    raise FileNotFoundError(f"No policy file found in {config_dir} (policy.yaml or policy.json)")
+    raise FileNotFoundError(f"No policy file found in {config_dir} (required: policy.yaml)")
 
 def endpoints_from_policy(policy: Dict[str, Any]) -> List[dict]:
     """Collect unique METHOD:/path from rbac_rules (allowed_endpoints + critical_deny) across roles."""
@@ -139,80 +136,112 @@ def extract_request_schema(openapi: Dict[str, Any], method: str, path: str) -> D
         # Normalize method and path
         method = method.upper()
         path = normalize_path(path)
-        
-        # Find matching path in OpenAPI (handle path parameters)
-        spec_paths = openapi.get('paths', {})
+        path_norm = path.rstrip('/') or '/'
+
+        spec_paths = openapi.get('paths', {}) or {}
         operation = None
-        
-        # Direct match first
+
+        # Local helper: resolve OpenAPI $ref recursively (best effort)
+        def _resolve_ref(node: Dict[str, Any], max_depth: int = 8) -> Dict[str, Any]:
+            cur = node if isinstance(node, dict) else {}
+            depth = 0
+            while isinstance(cur, dict) and '$ref' in cur and depth < max_depth:
+                ref = cur.get('$ref')
+                if not isinstance(ref, str) or not ref.startswith('#/'):
+                    break
+                parts = [p for p in ref[2:].split('/') if p]
+                target = openapi
+                ok = True
+                for part in parts:
+                    if isinstance(target, dict) and part in target:
+                        target = target[part]
+                    else:
+                        ok = False
+                        break
+                if not ok or not isinstance(target, dict):
+                    break
+                cur = target
+                depth += 1
+            return cur if isinstance(cur, dict) else {}
+
+        # Direct match first (with and without trailing slash)
         if path in spec_paths:
-            path_item = spec_paths[path]
-            operation = path_item.get(method.lower())
-        
-        # Try pattern matching for parameterized paths
+            operation = (spec_paths.get(path) or {}).get(method.lower())
+        if not operation:
+            for sp, item in spec_paths.items():
+                if (normalize_path(sp).rstrip('/') or '/') == path_norm:
+                    operation = (item or {}).get(method.lower())
+                    if operation:
+                        break
+
+        # Pattern matching for parameterized paths
         if not operation:
             for spec_path, path_item in spec_paths.items():
-                # Convert OpenAPI path to regex pattern
-                pattern = re.sub(r'\{[^}]+\}', r'[^/]+', spec_path)
-                if re.fullmatch(pattern, path):
-                    operation = path_item.get(method.lower())
-                    break
-        
+                sp_norm = normalize_path(spec_path).rstrip('/') or '/'
+                pattern = re.sub(r'\{[^}]+\}', r'[^/]+', sp_norm)
+                if re.fullmatch(pattern, path_norm):
+                    operation = (path_item or {}).get(method.lower())
+                    if operation:
+                        break
+
         if not operation:
             return {}
-        
-        # Extract request body schema
+
         request_body = operation.get('requestBody', {})
+        request_body = _resolve_ref(request_body)
         if not request_body:
             return {}
-        
-        content = request_body.get('content', {})
-        json_content = content.get('application/json', {})
-        schema = json_content.get('schema', {})
-        
-        # If no schema, try to infer from example or examples
+
+        content = request_body.get('content', {}) or {}
+        # Prefer JSON-like media types but support form data as fallback
+        media = (
+            content.get('application/json')
+            or content.get('application/*+json')
+            or content.get('application/x-www-form-urlencoded')
+            or content.get('multipart/form-data')
+            or {}
+        )
+
+        schema = _resolve_ref(media.get('schema', {}))
+        # Resolve nested property refs as well
+        if isinstance(schema.get('properties'), dict):
+            for pk, pv in list(schema.get('properties', {}).items()):
+                if isinstance(pv, dict) and '$ref' in pv:
+                    schema['properties'][pk] = _resolve_ref(pv)
+
+        # If no schema, try infer from example(s)
         if not schema or not schema.get('properties'):
-            example = json_content.get('example', {})
-            
-            # Handle multiple examples format: {"examples": {"example1": {"value": {...}}, ...}}
-            if not example and 'examples' in json_content:
-                examples_obj = json_content.get('examples', {})
-                if isinstance(examples_obj, dict):
-                    # Take first example's value
-                    first_example_key = next(iter(examples_obj), None)
-                    if first_example_key:
-                        example_item = examples_obj[first_example_key]
-                        if isinstance(example_item, dict):
-                            example = example_item.get('value', {})
-            
+            example = media.get('example', {})
+            if not example and 'examples' in media:
+                examples_obj = media.get('examples', {})
+                if isinstance(examples_obj, dict) and examples_obj:
+                    first_key = next(iter(examples_obj), None)
+                    ex_item = examples_obj.get(first_key) if first_key else None
+                    if isinstance(ex_item, dict):
+                        example = ex_item.get('value', {})
+
             if example and isinstance(example, dict):
-                # Infer schema from example
-                schema = {
-                    'type': 'object',
-                    'properties': {},
-                    'required': list(example.keys())
-                }
+                schema = {'type': 'object', 'properties': {}, 'required': list(example.keys())}
                 for key, value in example.items():
                     if isinstance(value, str):
                         schema['properties'][key] = {'type': 'string'}
-                    elif isinstance(value, int):
-                        schema['properties'][key] = {'type': 'integer'}
                     elif isinstance(value, bool):
                         schema['properties'][key] = {'type': 'boolean'}
+                    elif isinstance(value, int):
+                        schema['properties'][key] = {'type': 'integer'}
                     elif isinstance(value, list):
                         schema['properties'][key] = {'type': 'array'}
                     elif isinstance(value, dict):
                         schema['properties'][key] = {'type': 'object'}
                     else:
                         schema['properties'][key] = {'type': 'string'}
-        
+
         return {
-            'schema': schema,
-            'required': schema.get('required', []),
-            'properties': schema.get('properties', {}),
-            'example': json_content.get('example') or json_content.get('examples', {})
+            'schema': schema if isinstance(schema, dict) else {},
+            'required': (schema.get('required', []) if isinstance(schema, dict) else []),
+            'properties': (schema.get('properties', {}) if isinstance(schema, dict) else {}),
+            'example': media.get('example') or media.get('examples', {})
         }
-    
     except Exception:
         return {}
 

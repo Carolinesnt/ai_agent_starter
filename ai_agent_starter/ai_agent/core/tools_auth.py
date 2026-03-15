@@ -100,12 +100,8 @@ class AuthManager:
             pass_field = self._infer_pass_field_from_openapi(info.get("endpoint")) or self.global_pass_field or "password"
             # Determine user value strictly from env (may be email or username)
             user_value = env_user or payload.get("username") or payload.get("email")
-            # If the value looks like an email, prefer 'email' as the field name
-            try:
-                if isinstance(user_value, str) and ('@' in user_value) and user_field.lower() != 'email':
-                    user_field = 'email'
-            except Exception:
-                pass
+            # Respect configured/inferred user_field; do not auto-switch by value shape.
+            # This prevents sending wrong login key when API requires explicit "username".
             if user_value is not None:
                 payload[user_field] = user_value
             # Ensure we don't send both username and email
@@ -139,7 +135,12 @@ class AuthManager:
             try:
                 sc = int(resp.get("status_code", 0))
                 if sc >= 400:
-                    raise ValueError(f"Login failed for role {role}: {sc} {resp.get('body')}")
+                    body_error = resp.get("body", {})
+                    error_msg = body_error.get("error") or body_error.get("message") or str(body_error)
+                    raise ValueError(f"Login failed for role {role} (HTTP {sc}): {error_msg}. Check credentials in .env file ({self._env_key_base(role)}_USERNAME and {self._env_key_base(role)}_PASSWORD)")
+            except ValueError:
+                # Re-raise ValueError (login failed)
+                raise
             except Exception:
                 pass
             body = resp.get("body", {})
@@ -194,17 +195,20 @@ class AuthManager:
         self.cache[role] = token
         return token
 
-    def get_user_id(self, role: str) -> int:
+    def get_user_id(self, role: str) -> Optional[int]:
         # Prefer explicit env override
         env_uid = self._env_user_id_for_role(role)
         if isinstance(env_uid, int) and env_uid > 0:
             return env_uid
         info = self.roles.get(role, {})
         uid = info.get("payload", {}).get("user_id")
-        if isinstance(uid, int):
+        if isinstance(uid, int) and uid > 0:
             return uid
-        # Derive a deterministic synthetic ID if not provided
-        return self._default_user_id(role)
+        # Do not synthesize IDs in live mode; unresolved user ID should be handled upstream.
+        # Keep deterministic synthetic IDs only for dry-run/testing mode.
+        if getattr(self.http, "dry_run", False):
+            return self._default_user_id(role)
+        return None
 
     @staticmethod
     def _extract(obj: Dict[str, Any], path: Optional[str]):

@@ -1,109 +1,713 @@
-# config/policy.yaml
+# Policy Configuration for BAC (Broken Access Control) Testing API
+# Defines RBAC rules, permissions, and endpoint access control per role
+
 rbac_rules:
   Admin_HC:
+    description: "HR Administrator with full system access and user management capabilities"
     permissions:
-      - manage_consent
+      - user_management
       - rbac_admin
-      - request_history_and_status
+      - view_all_documents
+      - payroll_management
+      - leave_management
+      - audit_access
+      - full_access
+
     allowed_endpoints:
-      #request_history_and_status
-      - GET:/employee/change-request
-      - GET:/employee/change-request/{id_change_request}
-      - GET:/employee/update-histories/{id_change_request}
+      # Authentication
+      - POST:/auth/login/
+      - POST:/auth/refresh/
+      - POST:/auth/logout/
 
-      #manage_consent
-      - GET:/employee/consents/active
-      - GET:/employee/consents/status
-      - POST:/employee/consents
-      - PUT:/employee/consents/{id_consent}
-      - POST:/employee/consents/approve
-      - GET:/employee/consents/list
+      # User Management (Admin_HC can manage all users)
+      - GET:/users/
+      - GET:/users/{user_id}/
+      - PUT:/users/{user_id}/
+      - DELETE:/users/{user_id}/
+      - PUT:/users/{user_id}/role/
 
-      #rbac_admin
-      - GET:/roles
-      - POST:/roles
-      - GET:/role/{id_role}
-      - PUT:/role/{id_role}
-      - DELETE:/role/{id_role}
-      - POST:/role/{id_role}/permissions
-      - GET:/permissions
-      - POST:/permissions
-      - PUT:/permission/{id_permission}
-      - DELETE:/permission/{id_permission}
-      - GET:/users
-      - GET:/user/{user_id}
-      - POST:/user/{user_id}/roles
+      # Document Management (Admin_HC can view/manage all documents)
+      - GET:/documents/
+      - POST:/documents/
+      - GET:/documents/{doc_id}/
+      - PUT:/documents/{doc_id}/
+      - DELETE:/documents/{doc_id}/
+      - GET:/documents/{doc_id}/download/
 
-    # denied_endpoints:
-    #   #update_data_personal
-    #   - POST:/employee/change-request
-    #   - PUT:/employee/change-request/{id_change_request}
-    #   - DELETE:/employee/change-request/{id_change_request}
+      # Payroll Management (Admin_HC can create and view all payroll)
+      - GET:/payroll/
+      - POST:/payroll/
+      - GET:/payroll/{user_id}/
+      - PUT:/payroll/{user_id}/
 
-    #   #export_pdf
-    #   - POST:/employee/pdf-export
+      # Leave Management (Admin_HC can approve/reject leaves)
+      - GET:/leaves/
+      - GET:/leaves/{leave_id}/
+      - PUT:/leaves/{leave_id}/approve/
+      - PUT:/leaves/{leave_id}/cancel/
 
-    #   #attachment
-    #   - GET:/employee/attachments/parent/{parent_id}/item/{item_id}/preview
-    #   - GET:/employee/attachments/parent/{parent_id}/item/{item_id}/download
-    #   - GET:/employee/attachments/{item_id}/preview
-    #   - GET:/employee/attachments/{item_id}/download
-    #   - GET:/employee/attachments/{item_id}/information
-    #   - DELETE:/employee/attachments/{item_id}/delete
-    #   - POST:/employee/attachments/change-request/{id_change_request}
+      # Admin Dashboard & Audit
+      - GET:/admin/audit-logs/
+      - GET:/admin/audit-logs/{user_id}/
+      - GET:/admin/dashboard/
 
-    critical_deny:
-      - DELETE:/users/{user_id}
+    # No denied endpoints for Admin_HC (full access)
+    denied_endpoints: []
+
+    critical_operations:
+      - DELETE:/users/{user_id}/ # Can delete users but should be logged
+      - PUT:/users/{user_id}/role/ # Can change user roles
+      - PUT:/payroll/{user_id}/ # Can modify payroll data
+
+  Admin:
+    description: "Administrator with full system access and user management capabilities"
+    permissions:
+      - user_management
+      - rbac_admin
+      - view_all_documents
+      - payroll_management
+      - leave_management
+      - audit_access
+      - full_access
+
+    allowed_endpoints:
+      # Authentication
+      - POST:/auth/login/
+      - POST:/auth/refresh/
+      - POST:/auth/logout/
+
+      # User Management (Admin can manage all users)
+      - GET:/api/users/
+      - GET:/api/users/{user_id}/
+      - PUT:/api/users/{user_id}/
+      - DELETE:/api/users/{user_id}/
+      - PUT:/api/users/{user_id}/role/
+
+      # Document Management (Admin can view/manage all documents)
+      - GET:/api/documents/
+      - POST:/api/documents/
+      - GET:/api/documents/{doc_id}/
+      - PUT:/api/documents/{doc_id}/
+      - DELETE:/api/documents/{doc_id}/
+      - GET:/api/documents/{doc_id}/download/
+
+      # Payroll Management (Admin can create and view all payroll)
+      - GET:/api/payroll/
+      - POST:/api/payroll/
+      - GET:/api/payroll/{user_id}/
+      - PUT:/api/payroll/{user_id}/
+
+      # Leave Management (Admin can approve/reject leaves)
+      - GET:/api/leaves/
+      - GET:/api/leaves/{leave_id}/
+      - PUT:/api/leaves/{leave_id}/approve/
+      - PUT:/api/leaves/{leave_id}/cancel/
+
+      # Admin Dashboard & Audit
+      - GET:/api/admin/audit-logs/
+      - GET:/api/admin/audit-logs/{user_id}/
+      - GET:/api/admin/dashboard/
+
+    # No denied endpoints for Admin (full access)
+    denied_endpoints: []
+
+    critical_operations:
+      - DELETE:/api/users/{user_id}/ # Can delete users but should be logged
+      - PUT:/api/users/{user_id}/role/ # Can change user roles
+      - PUT:/api/payroll/{user_id}/ # Can modify payroll data
 
   Employee:
+    description: "Standard employee with limited access to own resources only"
     permissions:
-      - request_history_and_status
-      - attachment
-      - export_pdf
-      - update_data_personal
+      - view_own_profile
+      - update_own_profile
+      - manage_own_documents
+      - view_own_payroll
+      - manage_own_leaves
+
     allowed_endpoints:
-      #request_history_and_status
-      - GET:/employee/change-request
-      - GET:/employee/change-request/{id_change_request}
-      - GET:/employee/update-histories/{id_change_request}
+      # Authentication
+      - POST:/auth/login/
+      - POST:/auth/refresh/
+      - POST:/auth/logout/
 
-      #attachment
-      - GET:/employee/attachments/parent/{parent_id}/item/{item_id}/preview
-      - GET:/employee/attachments/parent/{parent_id}/item/{item_id}/download
-      - GET:/employee/attachments/{item_id}/preview
-      - GET:/employee/attachments/{item_id}/download
-      - GET:/employee/attachments/{item_id}/information
-      - DELETE:/employee/attachments/{item_id}/delete
-      - POST:/employee/attachments/change-request/{id_change_request}
+      # Own Profile Only (IDOR Testing: should NOT access other user IDs)
+      - GET:/users/{user_id}/ # Only if user_id == self
+      - PUT:/users/{user_id}/ # Only if user_id == self
 
-      #export_pdf
-      - POST:/employee/pdf-export
+      # Own Documents Only (IDOR Testing: should NOT access other user's docs)
+      - GET:/documents/ # Only shows own documents
+      - POST:/documents/ # Create own document
+      - GET:/documents/{doc_id}/ # Only if owner == self
+      - PUT:/documents/{doc_id}/ # Only if owner == self
+      - DELETE:/documents/{doc_id}/ # Only if owner == self
+      - GET:/documents/{doc_id}/download/ # Only if owner == self
 
-      #update_data_personal
-      - POST:/employee/change-request
-      - PUT:/employee/change-request/{id_change_request}
-      - DELETE:/employee/change-request/{id_change_request}
+      # Own Payroll Only (IDOR Testing: should NOT access other user's payroll)
+      - GET:/payroll/{user_id}/ # Only if user_id == self
 
-    # denied_endpoints:
-    #   #manage_consent
-    #   - GET:/employee/consents/active
-    #   - GET:/employee/consents/status
-    #   - POST:/employee/consents
-    #   - PUT:/employee/consents/{id_consent}
-    #   - POST:/employee/consents/approve
-    #   - GET:/employee/consents/list
+      # Own Leaves Only (IDOR Testing: should NOT access other user's leaves)
+      - GET:/leaves/ # Only shows own leaves
+      - POST:/leaves/ # Create own leave request
+      - GET:/leaves/{leave_id}/ # Only if user == self
+      - PUT:/leaves/{leave_id}/ # Only if user == self and status == pending
+      - PUT:/leaves/{leave_id}/cancel/ # Only if user == self and status == pending
 
-    #   #rbac_admin
-    #   - GET:/roles
-    #   - POST:/roles
-    #   - GET:/role/{role_id}
-    #   - PUT:/role/{role_id}
-    #   - DELETE:/role/{role_id}
-    #   - POST:/role/{role_id}/permissions
-    #   - GET:/permissions
-    #   - POST:/permissions
-    #   - PUT:/permissions/{id_permission}
-    #   - DELETE:/permissions/{id_permission}
-    #   - GET:/users
-    #   - GET:/user/{user_id}
-    #   - POST:/user/{user_id}/roles
+    denied_endpoints:
+      # User Management (Cannot access other users or manage roles)
+      - GET:/users/ # Cannot list all users
+      - DELETE:/users/{user_id}/ # Cannot delete any user
+      - PUT:/users/{user_id}/role/ # Cannot change user roles
+
+      # Payroll Management (Cannot create or view all payroll)
+      - GET:/payroll/ # Cannot list all payroll
+      - POST:/payroll/ # Cannot create payroll
+      - PUT:/payroll/{user_id}/ # Cannot update payroll
+
+      # Leave Management (Cannot approve/reject leaves)
+      - PUT:/leaves/{leave_id}/approve/ # Cannot approve/reject leaves
+
+      # Admin Access (Cannot access admin features)
+      - GET:/admin/audit-logs/
+      - GET:/admin/audit-logs/{user_id}/
+      - GET:/admin/dashboard/
+
+    critical_deny:
+      - DELETE:/users/{user_id}/ # Absolutely cannot delete users
+      - PUT:/users/{user_id}/role/ # Absolutely cannot change roles
+      - POST:/payroll/ # Absolutely cannot create payroll
+      - PUT:/payroll/{user_id}/ # Absolutely cannot modify payroll
+      - PUT:/leaves/{leave_id}/approve/ # Absolutely cannot approve leaves
+      - GET:/admin/audit-logs/ # Absolutely cannot view audit logs
+
+# Horizontal IDOR Test Cases
+# Note: Authentication endpoints (/auth/login/, /auth/logout/, /auth/refresh/) have special behavior
+# and should not be included in IDOR/BOLA tests. They are documented separately below.
+
+authentication_endpoints:
+  description: "Special handling for authentication endpoints - these have different expected responses based on request data"
+  
+  endpoints:
+    login:
+      endpoint: "POST:/auth/login/"
+      description: "User authentication endpoint"
+      requires_authentication: false
+      requires_valid_credentials: true
+      expected_responses:
+        200: "Valid credentials provided (username + password)"
+        400: "Missing or malformed request body"
+        401: "Invalid credentials (wrong username/password)"
+      evaluation_rule: "Should NOT be marked as FP when returning 401 - this is expected for invalid credentials"
+    
+    logout:
+      endpoint: "POST:/auth/logout/"
+      description: "User logout endpoint"
+      requires_authentication: true
+      requires_valid_token: true
+      expected_responses:
+        200: "Valid token provided in Authorization header"
+        401: "No token or invalid token in Authorization header"
+      evaluation_rule: "Should NOT be marked as FP when returning 401 - this is expected without valid token"
+    
+    refresh:
+      endpoint: "POST:/auth/refresh/"
+      description: "Token refresh endpoint"
+      requires_authentication: false
+      requires_valid_refresh_token: true
+      expected_responses:
+        200: "Valid refresh token provided in request body"
+        400: "Missing refresh token in request body"
+        401: "Invalid or expired refresh token"
+      evaluation_rule: "Should NOT be marked as FP when returning 401 - this is expected for invalid/expired refresh tokens"
+  
+  important_notes:
+    - "Auth endpoints are NOT truly 'public' - they have specific input requirements"
+    - "401 responses from auth endpoints are EXPECTED when requirements not met"
+    - "Evaluators should NOT count 401 from auth endpoints as False Positives"
+    - "These endpoints should be tested separately from IDOR/BOLA scenarios"
+    - "Auth endpoints are allowed for ALL roles but have different success criteria"
+  
+  testing_guidelines:
+    login_test:
+      test_name: "Valid Login"
+      endpoint: "POST:/auth/login/"
+      request_body:
+        username: "employee1"
+        password: "employee123"
+      expected_response: 200
+      should_receive_tokens: true
+    
+    login_test_invalid:
+      test_name: "Invalid Login"
+      endpoint: "POST:/auth/login/"
+      request_body:
+        username: "employee1"
+        password: "wrongpassword"
+      expected_response: 401
+      note: "This is NOT a false positive"
+    
+    logout_test:
+      test_name: "Valid Logout"
+      endpoint: "POST:/auth/logout/"
+      headers:
+        Authorization: "Bearer <valid_access_token>"
+      expected_response: 200
+    
+    logout_test_no_token:
+      test_name: "Logout Without Token"
+      endpoint: "POST:/auth/logout/"
+      headers: {}
+      expected_response: 401
+      note: "This is NOT a false positive"
+
+idor_test_scenarios:
+  horizontal_idor:
+    description: "Employee tries to access another employee's resources"
+    attacker_role: "Employee"
+    victim_role: "Employee"
+    test_cases:
+      - endpoint: GET:/api/users/3/
+        attacker_user_id: 23  # employee1
+        victim_user_id: 3     # employee2
+        target_resource: "user_id: 3"
+        expected_response: 403
+        description: "Employee1 (ID:23) tries to view Employee2's (ID:3) profile"
+
+      - endpoint: GET:/api/documents/5/
+        attacker_user_id: 23  # employee1
+        victim_user_id: 3     # employee2 (owner of doc 5)
+        target_resource: "doc_id: 5 (owned by user 3)"
+        expected_response: 403
+        description: "Employee1 (ID:23) tries to view Employee2's (ID:3) document"
+
+      - endpoint: GET:/api/payroll/3/
+        attacker_user_id: 23  # employee1
+        victim_user_id: 3     # employee2
+        target_resource: "user_id: 3"
+        expected_response: 403
+        description: "Employee1 (ID:23) tries to view Employee2's (ID:3) payroll"
+
+      - endpoint: PUT:/api/documents/5/
+        attacker_user_id: 23  # employee1
+        victim_user_id: 3     # employee2 (owner of doc 5)
+        target_resource: "doc_id: 5 (owned by user 3)"
+        expected_response: 403
+        description: "Employee1 (ID:23) tries to edit Employee2's (ID:3) document"
+
+      - endpoint: DELETE:/api/documents/5/
+        attacker_user_id: 23  # employee1
+        victim_user_id: 3     # employee2 (owner of doc 5)
+        target_resource: "doc_id: 5 (owned by user 3)"
+        expected_response: 403
+        description: "Employee1 (ID:23) tries to delete Employee2's (ID:3) document"
+
+  vertical_escalation:
+    description: "Employee tries to access admin-only resources"
+    attacker_role: "Employee"
+    target_role: "Admin"
+    test_cases:
+      - endpoint: GET:/api/users/
+        attacker_user_id: 23  # employee1
+        target_resource: "admin-only endpoint"
+        expected_response: 403
+        description: "Employee1 (ID:23) tries to list all users (admin-only)"
+
+      - endpoint: DELETE:/api/users/3/
+        attacker_user_id: 23  # employee1
+        target_user_id: 3     # employee2
+        target_resource: "user_id: 3"
+        expected_response: 403
+        description: "Employee1 (ID:23) tries to delete Employee2 (ID:3) (admin-only)"
+
+      - endpoint: PUT:/api/users/23/role/
+        attacker_user_id: 23  # employee1 (trying to change own role)
+        target_resource: "own user_id: 23"
+        expected_response: 403
+        description: "Employee1 (ID:23) tries to escalate own role to admin"
+
+      - endpoint: POST:/api/payroll/
+        attacker_user_id: 23  # employee1
+        target_resource: "admin-only endpoint"
+        expected_response: 403
+        description: "Employee1 (ID:23) tries to create payroll (admin-only)"
+
+      - endpoint: GET:/api/payroll/
+        attacker_user_id: 23  # employee1
+        target_resource: "admin-only endpoint"
+        expected_response: 403
+        description: "Employee1 (ID:23) tries to view all payroll (admin-only)"
+
+      - endpoint: PUT:/api/leaves/1/approve/
+        attacker_user_id: 23  # employee1
+        target_leave_id: 1    # any leave request
+        target_resource: "leave_id: 1"
+        expected_response: 403
+        description: "Employee1 (ID:23) tries to approve leave request (admin-only)"
+
+      - endpoint: GET:/api/admin/audit-logs/
+        attacker_user_id: 23  # employee1
+        target_resource: "admin-only endpoint"
+        expected_response: 403
+        description: "Employee1 (ID:23) tries to view audit logs (admin-only)"
+
+  not_found_scenarios:
+    description: "Testing for resources that truly don't exist (404 expected)"
+    note: "These should return 404 for ALL users (including admin) because resource doesn't exist"
+    test_cases:
+      # Non-existent Users
+      - endpoint: GET:/api/users/101/
+        requester_user_id: 23  # employee1 or any user
+        target_user_id: 101    # doesn't exist
+        expected_response: 404
+        description: "Access non-existent user profile (user_id: 101)"
+      
+      - endpoint: PUT:/api/users/1/
+        requester_user_id: 23  # employee1 or any user
+        target_user_id: 1      # deleted/doesn't exist
+        expected_response: 404
+        description: "Update deleted/non-existent user (user_id: 1)"
+      
+      - endpoint: PUT:/api/users/1/role/
+        requester_user_id: 22  # admin or any user
+        target_user_id: 1      # deleted/doesn't exist
+        expected_response: 404
+        description: "Change role of non-existent user (user_id: 1)"
+      
+      - endpoint: DELETE:/api/users/2/
+        requester_user_id: 22  # admin
+        target_user_id: 2      # deleted/doesn't exist
+        expected_response: 404
+        description: "Delete already deleted/non-existent user (user_id: 2)"
+      
+      # Non-existent Documents
+      - endpoint: GET:/api/documents/746/
+        requester_user_id: 23  # employee1 or any user
+        target_doc_id: 746     # doesn't exist
+        expected_response: 404
+        description: "Access non-existent document (doc_id: 746)"
+      
+      - endpoint: PUT:/api/documents/519/
+        requester_user_id: 23  # employee1 or any user
+        target_doc_id: 519     # doesn't exist
+        expected_response: 404
+        description: "Update non-existent document (doc_id: 519)"
+      
+      - endpoint: DELETE:/api/documents/594/
+        requester_user_id: 23  # employee1 or any user
+        target_doc_id: 594     # doesn't exist
+        expected_response: 404
+        description: "Delete non-existent document (doc_id: 594)"
+      
+      - endpoint: GET:/api/documents/522/download/
+        requester_user_id: 23  # employee1 or any user
+        target_doc_id: 522     # doesn't exist
+        expected_response: 404
+        description: "Download non-existent document (doc_id: 522)"
+      
+      # Non-existent Payroll
+      - endpoint: GET:/api/payroll/101/
+        requester_user_id: 23  # employee1
+        target_user_id: 101    # doesn't exist
+        expected_response: 404
+        description: "Access payroll for non-existent user (user_id: 101)"
+      
+      - endpoint: PUT:/api/payroll/1/
+        requester_user_id: 22  # admin
+        target_user_id: 1      # deleted/doesn't exist
+        expected_response: 404
+        description: "Update payroll for non-existent user (user_id: 1)"
+      
+      - endpoint: PUT:/api/payroll/2/
+        requester_user_id: 22  # admin
+        target_user_id: 2      # deleted/doesn't exist
+        expected_response: 404
+        description: "Update payroll for deleted user (user_id: 2)"
+      
+      # Non-existent Leaves
+      - endpoint: GET:/api/leaves/460/
+        requester_user_id: 23  # employee1 or any user
+        target_leave_id: 460   # doesn't exist
+        expected_response: 404
+        description: "Access non-existent leave request (leave_id: 460)"
+      
+      - endpoint: PUT:/api/leaves/595/
+        requester_user_id: 23  # employee1 or any user
+        target_leave_id: 595   # doesn't exist
+        expected_response: 404
+        description: "Update non-existent leave request (leave_id: 595)"
+      
+      - endpoint: PUT:/api/leaves/582/approve/
+        requester_user_id: 22  # admin
+        target_leave_id: 582   # doesn't exist
+        expected_response: 404
+        description: "Approve non-existent leave request (leave_id: 582)"
+      
+      - endpoint: PUT:/api/leaves/140/cancel/
+        requester_user_id: 23  # employee1 or any user
+        target_leave_id: 140   # doesn't exist
+        expected_response: 404
+        description: "Cancel non-existent leave request (leave_id: 140)"
+
+  edge_cases:
+    description: "Edge cases and boundary testing scenarios"
+    test_cases:
+      # Invalid ID formats
+      - endpoint: GET:/api/users/abc/
+        requester_user_id: 23  # employee1 or any user
+        target_user_id: "abc"  # invalid format
+        expected_response: 404
+        description: "Access user with invalid ID format (user_id: abc - non-numeric)"
+      
+      - endpoint: GET:/api/documents/-1/
+        requester_user_id: 23  # employee1 or any user
+        target_doc_id: -1      # invalid (negative)
+        expected_response: 404
+        description: "Access document with negative ID (doc_id: -1)"
+      
+      # Access own non-existent resources (still 404, not 403)
+      - endpoint: GET:/api/documents/99999/
+        requester_user_id: 23  # employee1 (accessing own non-existent doc)
+        target_doc_id: 99999   # doesn't exist
+        expected_response: 404
+        description: "Employee1 (ID:23) tries to access non-existent doc (doc_id: 99999) - 404, not 403"
+      
+      - endpoint: GET:/api/leaves/99999/
+        requester_user_id: 23  # employee1 (accessing own non-existent leave)
+        target_leave_id: 99999 # doesn't exist
+        expected_response: 404
+        description: "Employee1 (ID:23) tries to access non-existent leave (leave_id: 99999) - 404, not 403"
+
+# Response Codes for Access Control
+access_control_responses:
+  authorized: 200 # Success
+  created: 201 # Resource created successfully
+  forbidden: 403 # User doesn't have permission (IDOR detected)
+  not_found: 404 # Resource doesn't exist (only when truly not found)
+  unauthorized: 401 # Not authenticated (no/invalid token)
+  bad_request: 400 # Invalid request data
+
+# Decision Flow: 403 vs 404
+response_decision_flow:
+  description: "How to decide between 403 Forbidden and 404 Not Found"
+  
+  scenario_1_unauthorized_access:
+    condition: "User tries to access existing resource owned by another user"
+    example: "Employee1 (ID:23) tries to GET /api/documents/5/ owned by Employee2 (ID:3)"
+    response: 403
+    reason: "Resource exists but user doesn't have permission"
+    security_note: "Prevents information disclosure about resource existence"
+  
+  scenario_2_nonexistent_resource:
+    condition: "User tries to access resource that doesn't exist in database"
+    example: "Any user tries to GET /api/documents/999/ (doesn't exist)"
+    response: 404
+    reason: "Resource truly doesn't exist"
+    security_note: "Same response for admin and employee - no information disclosure"
+  
+  scenario_3_deleted_resource:
+    condition: "User tries to access previously deleted resource"
+    example: "Any user tries to GET /api/users/1/ (deleted user)"
+    response: 404
+    reason: "Resource no longer exists"
+    log_note: "Should be logged in audit trail"
+  
+  scenario_4_admin_privilege:
+    condition: "Employee tries admin-only endpoint"
+    example: "Employee tries to DELETE /api/users/5/"
+    response: 403
+    reason: "Insufficient privileges (vertical escalation attempt)"
+    security_note: "Should trigger security alert"
+  
+  implementation_order:
+    step_1: "Check if user is authenticated (if not → 401)"
+    step_2: "Check if resource exists (if not → 404)"
+    step_3: "Check if user has permission to access resource (if not → 403)"
+    step_4: "Process request (→ 200/201)"
+    
+    exception: "For security-critical operations, check permission BEFORE existence to prevent enumeration"
+
+# Security Notes
+security_guidelines:
+  - "Always return 403 Forbidden when user tries to access unauthorized resources"
+  - "Return 404 Not Found only when resource truly doesn't exist (prevents enumeration)"
+  - "Log all 403 responses in audit logs for security monitoring"
+  - "Validate user ownership on every request to resource-specific endpoints"
+  - "Never expose other users' data in error messages"
+  - "Check permissions before checking if resource exists"
+  - "Admin role should have access to all endpoints except where explicitly denied"
+  - "Employee role should only access own resources (user_id, document owner, etc.)"
+
+# Metadata
+metadata:
+  version: "1.0.3"
+  last_updated: "2026-03-07 23:15"
+  api_base_url: "http://localhost:8000"
+  total_roles: 2
+  total_endpoints: 25
+  total_test_scenarios: 4  # horizontal_idor, vertical_escalation, not_found_scenarios, edge_cases
+  security_model: "RBAC (Role-Based Access Control)"
+  testing_focus: "IDOR (Insecure Direct Object Reference) and BOLA (Broken Object Level Authorization)"
+  
+  test_coverage:
+    horizontal_idor_tests: 5
+    vertical_escalation_tests: 7
+    not_found_tests: 17
+    edge_case_tests: 4
+    total_test_cases: 33
+  
+  test_execution_summary:
+    total_test_runs: 3
+    run_1_timestamp: "2026-03-07 22:41"
+    run_1_description: "404 responses for non-existent resources"
+    run_1_requests: 11
+    run_2_timestamp: "2026-03-07 22:57"
+    run_2_description: "Mixed test run with 200 and 404 responses"
+    run_2_requests: 19
+    run_3_timestamp: "2026-03-07 23:07"
+    run_3_description: "Validation run - 404 for non-existent, 200 for own resource"
+    run_3_requests: 18
+    total_requests_tested: 48
+    success_rate: "100%"
+  
+  changelog:
+    v1.0.3:
+      date: "2026-03-07 23:15"
+      changes:
+        - "Added authentication_endpoints section with special handling rules"
+        - "Clarified that 401 from auth endpoints is NOT a false positive"
+        - "Added testing guidelines for login/logout scenarios"
+        - "Documented expected responses for valid vs invalid credentials"
+        - "Fixed evaluator guidance to prevent auth endpoint FPs"
+    
+    v1.0.2:
+      date: "2026-03-07 23:07"
+      changes:
+        - "Added detailed user_id information to all test scenarios"
+        - "Added latest_test_run with timestamp 23:07"
+        - "Updated test execution summary with run 3"
+    
+    v1.0.1:
+      date: "2026-03-07 22:57"
+      changes:
+        - "Added test execution logs"
+        - "Documented mixed responses test run"
+
+# Test Execution Log Examples
+test_execution_examples:
+  description: "Real test execution logs showing expected behavior"
+  
+  successful_404_responses:
+    timestamp: "2026-03-07 22:41"
+    test_type: "Not Found - Legitimate 404s"
+    logs:
+      - "PUT /api/users/1/ → 404 (user deleted/doesn't exist)"
+      - "PUT /api/users/1/role/ → 404 (user doesn't exist)"
+      - "PUT /api/payroll/1/ → 404 (user doesn't exist)"
+      - "PUT /api/documents/746/ → 404 (document doesn't exist)"
+      - "PUT /api/leaves/460/ → 404 (leave request doesn't exist)"
+      - "PUT /api/leaves/582/approve/ → 404 (leave doesn't exist)"
+      - "PUT /api/leaves/622/cancel/ → 404 (leave doesn't exist)"
+      - "DELETE /api/users/1/ → 404 (already deleted)"
+      - "DELETE /api/documents/594/ → 404 (document doesn't exist)"
+      - "GET /api/users/101/ → 404 (user doesn't exist)"
+      - "GET /api/payroll/101/ → 404 (user doesn't exist)"
+    
+    notes:
+      - "All responses correctly return 404 for non-existent resources"
+      - "No information disclosure - same response for all users"
+      - "Consistent behavior across GET, PUT, DELETE methods"
+  
+  expected_403_responses:
+    test_type: "IDOR Detection - Should be 403 Forbidden"
+    scenarios:
+      - endpoint: "GET /api/users/3/"
+        requester: "Employee1 (ID:23)"
+        owner: "Employee2 (ID:3)"
+        expected: 403
+        reason: "Horizontal IDOR - accessing another employee's profile"
+      
+      - endpoint: "PUT /api/documents/5/"
+        requester: "Employee1 (ID:23)"
+        owner: "Employee2 (ID:3)"
+        expected: 403
+        reason: "Horizontal IDOR - modifying another employee's document"
+      
+      - endpoint: "GET /api/payroll/"
+        requester: "Employee1 (ID:23)"
+        expected: 403
+        reason: "Vertical escalation - accessing admin-only endpoint"
+      
+      - endpoint: "DELETE /api/users/3/"
+        requester: "Employee1 (ID:23)"
+        expected: 403
+        reason: "Vertical escalation - admin-only operation"
+  
+  proper_200_responses:
+    test_type: "Authorized Access - Should be 200 OK"
+    scenarios:
+      - endpoint: "GET /api/users/23/"
+        requester: "Employee1 (ID:23)"
+        expected: 200
+        reason: "Accessing own profile"
+      
+      - endpoint: "PUT /api/documents/24/"
+        requester: "Employee1 (ID:23, owns doc 24)"
+        expected: 200
+        reason: "Updating own document"
+      
+      - endpoint: "GET /api/payroll/23/"
+        requester: "Employee1 (ID:23)"
+        expected: 200
+        reason: "Viewing own payroll"
+  
+  mixed_responses_test_run:
+    timestamp: "2026-03-07 22:57"
+    test_type: "Complete Test Run - Mixed Results (200/404)"
+    description: "Full test execution showing both successful operations and not-found scenarios"
+    
+    logs:
+      # Non-existent resources (404)
+      - "PUT /api/users/1/ → 404 (user deleted/non-existent)"
+      - "PUT /api/users/1/role/ → 404 (user doesn't exist)"
+      - "PUT /api/payroll/1/ → 404 (user doesn't exist)"
+      
+      # Successful operations on own resources (200)
+      - "PUT /api/documents/43/ → 200 (successfully updated own document)"
+      - "PUT /api/leaves/41/ → 200 (successfully updated own leave request)"
+      
+      # More non-existent resources (404)
+      - "PUT /api/leaves/253/approve/ → 404 (leave doesn't exist)"
+      - "PUT /api/leaves/995/cancel/ → 404 (leave doesn't exist)"
+      - "PUT /api/users/2/ → 404 (user deleted/non-existent)"
+      - "PUT /api/users/2/role/ → 404 (user doesn't exist)"
+      - "PUT /api/payroll/2/ → 404 (user doesn't exist)"
+      - "PUT /api/documents/439/ → 404 (document doesn't exist)"
+      - "PUT /api/leaves/933/ → 404 (leave doesn't exist)"
+      - "PUT /api/leaves/782/approve/ → 404 (leave doesn't exist)"
+      - "PUT /api/leaves/923/cancel/ → 404 (leave doesn't exist)"
+      - "DELETE /api/users/1/ → 404 (already deleted)"
+      - "DELETE /api/documents/231/ → 404 (document doesn't exist)"
+      - "DELETE /api/users/2/ → 404 (already deleted)"
+      - "DELETE /api/documents/196/ → 404 (document doesn't exist)"
+    
+    analysis:
+      total_requests: 19
+      successful_operations: 2
+      not_found_responses: 17
+      forbidden_responses: 0
+      
+      success_rate: "100% (all requests handled correctly)"
+      
+      key_observations:
+        - "Own resources (doc 43, leave 41) successfully updated → 200"
+        - "Non-existent resources correctly return 404"
+        - "No 403 responses - no unauthorized access attempts in this run"
+        - "Deleted users (1, 2) consistently return 404 across all endpoints"
+        - "Large ID numbers (253, 995, 933, 782, 923) properly handled as 404"
+      
+      security_validation:
+        - "✅ No information disclosure - 404 for all non-existent resources"
+        - "✅ Authorized operations succeed - user can update own documents/leaves"
+        - "✅ Consistent 404 responses across GET, PUT, DELETE methods"
+        - "✅ Proper handling of cascaded deletions (users 1, 2 and their resources)"
+

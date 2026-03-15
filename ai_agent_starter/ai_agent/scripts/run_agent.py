@@ -1,52 +1,86 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Run AI Security Testing Agent - Local Development Mode
 """
 import os
 import sys
 from pathlib import Path
-from dotenv import load_dotenv
+import traceback
+from datetime import datetime, timezone
+
+# Fix encoding for Windows console
+if sys.platform == 'win32':
+    try:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    except:
+        pass
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None  # python-dotenv not installed; run: pip install python-dotenv
 from rich.console import Console
 from rich.panel import Panel
 
 # ✅ Add project root to path
-project_root = Path(__file__).parent.parent
+# run_agent.py is in ai_agent/scripts/, so parent.parent is ai_agent_starter root
+script_dir = Path(__file__).resolve().parent
+project_root = script_dir.parent.parent  # Go up from scripts/ -> ai_agent/ -> ai_agent_starter/
 sys.path.insert(0, str(project_root))
 
 # Robust .env loading (search repo root), fallback to .env.example if .env not found
-try:
-    repo_root = Path(__file__).resolve().parents[2]
-    candidates = [
-        repo_root / "ai_agent_starter" / ".env",
-        repo_root / ".env",
-        repo_root.parent / ".env",
-        Path.cwd() / ".env",
-    ]
-    loaded = False
-    for env_path in candidates:
-        if env_path.exists():
-            load_dotenv(dotenv_path=env_path, override=True)
-            loaded = True
-            break
-    if not loaded:
-        examples = [
-            repo_root / "ai_agent_starter" / ".env.example",
-            repo_root / ".env.example",
-            Path.cwd() / ".env.example",
+if load_dotenv is not None:
+    try:
+        repo_root = Path(__file__).resolve().parents[2]
+        candidates = [
+            repo_root / "ai_agent_starter" / ".env",
+            repo_root / ".env",
+            repo_root.parent / ".env",
+            Path.cwd() / ".env",
         ]
-        for env_path in examples:
+        loaded = False
+        for env_path in candidates:
             if env_path.exists():
                 load_dotenv(dotenv_path=env_path, override=True)
                 loaded = True
                 break
-    if not loaded:
+        if not loaded:
+            examples = [
+                repo_root / "ai_agent_starter" / ".env.example",
+                repo_root / ".env.example",
+                Path.cwd() / ".env.example",
+            ]
+            for env_path in examples:
+                if env_path.exists():
+                    load_dotenv(dotenv_path=env_path, override=True)
+                    loaded = True
+                    break
+        if not loaded:
+            load_dotenv()
+    except Exception:
         load_dotenv()
-except Exception:
-    load_dotenv()
+else:
+    print("Warning: python-dotenv not installed. Run: pip install python-dotenv", file=sys.stderr)
 
 from ai_agent.core.orchestrator import AgentOrchestrator
 
 console = Console()
+
+def _write_agent_log(message: str) -> None:
+    """Persist runtime errors to ai_agent/runs/logs/agent.log."""
+    try:
+        log_dir = project_root / "ai_agent" / "runs" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "agent.log"
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"[{ts}] {message}\n")
+    except Exception:
+        # Logging should never break runner behavior
+        pass
 
 def render_banner():
     """Render a big ASCII banner and subtitle (configurable via env).
@@ -122,7 +156,12 @@ def main():
         console.print("\n⚠️  Agent stopped by user", style="yellow")
         sys.exit(0)
     except Exception as e:
-        console.print(f"\n❌ Error: {e}", style="red")
+        err_text = str(e)
+        tb = traceback.format_exc()
+        _write_agent_log(f"ERROR: {err_text}\n{tb}")
+        console.print(f"\n❌ Error: {err_text}", style="red")
+        if "getaddrinfo failed" in err_text.lower():
+            console.print("[yellow]Hint: DNS/network ke provider LLM gagal. Cek internet/proxy/firewall atau nonaktifkan strict summary.[/yellow]")
         console.print("\n[dim]Check logs at: ai_agent/runs/logs/agent.log[/dim]")
         sys.exit(1)
 

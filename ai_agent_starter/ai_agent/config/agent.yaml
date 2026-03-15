@@ -1,4 +1,4 @@
-﻿base_url: "http://127.0.0.1:8000/"
+base_url: "http://127.0.0.1:8000/api/"
 timeout_s: 45
 retries: 2
 depth: 1
@@ -16,12 +16,14 @@ llm:
   followups_enabled: true       # propose additional follow-up tests via LLM
   redact_enabled: true          # redact content before sending to LLM
   redact_max_chars: 1000        # cap any text snippets sent to LLM
+  summary_required: true     # allow run to finish even if LLM summary is temporarily unavailable
 
 planning:
-  plan_with_llm: true
+  plan_with_llm: true           # use LLM-assisted planning for endpoint selection/prioritization
   policy_first: false           # test berdasarkan OpenAPI (semua endpoint), bukan hanya policy
   include_all_endpoints: true   # sertakan semua endpoint (tidak hanya yang {id})
   max_endpoints: all            # tanpa batas (gunakan semua)
+  role_filter: ["Admin_HC", "Employee", "Employee_2"]  # aktifkan 3 role untuk cakupan penuh
 
 # Auto-discovery of resource IDs via list endpoints (simple patterns only)
 discovery:

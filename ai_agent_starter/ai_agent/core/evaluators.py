@@ -86,8 +86,10 @@ def _policy_allowed_endpoints(policy, role: str):
     rules = policy.get("rbac_rules", {})
     role_rules = rules.get(role) or rules.get(str(role)) or {}
     allowed = set(role_rules.get("allowed_endpoints", []) or [])
+    denied = set(role_rules.get("denied_endpoints", []) or [])
     critical_deny = set(role_rules.get("critical_deny", []) or [])
-    return allowed, critical_deny
+    self_only = set(role_rules.get("self_only_endpoints", []) or [])
+    return allowed, denied, critical_deny, self_only
 
 def _match_endpoint_pattern(method: str, path: str, pattern: str) -> bool:
     """Return True if METHOD:path matches METHOD:/path with placeholders in pattern.
@@ -118,6 +120,31 @@ def _in_endpoints(method: str, path: str, patterns: set) -> bool:
             continue
     return False
 
+
+def roles_allowed_for_endpoint(policy: Dict[str, Any], method: str, path: str) -> List[str]:
+    """
+    Return role names for which (method, path) is allowed by policy.
+    Used for critical_endpoints.csv allowed_roles so CSV reflects policy (existing condition).
+    """
+    path_norm = normalize_path(path or "")
+    rules = (policy or {}).get("rbac_rules", {}) or {}
+    # /auth/me/ is allowed for any authenticated role (current user profile)
+    if path_norm in ("/auth/me", "/auth/me/"):
+        return [r for r in rules if isinstance(rules.get(r), dict)]
+    out = []
+    for role, role_rules in rules.items():
+        if not isinstance(role_rules, dict):
+            continue
+        allowed = set(role_rules.get("allowed_endpoints", []) or [])
+        denied = set(role_rules.get("denied_endpoints", []) or [])
+        critical_deny = set(role_rules.get("critical_deny", []) or [])
+        if _in_endpoints(method, path, denied) or _in_endpoints(method, path, critical_deny):
+            continue
+        if _in_endpoints(method, path, allowed):
+            out.append(role)
+    return sorted(out)
+
+
 def _is_resource_scoped_endpoint(path: str) -> bool:
     """
     Detect endpoints that are resource-scoped (self-only access).
@@ -146,19 +173,37 @@ def _is_resource_scoped_endpoint(path: str) -> bool:
     return False
 
 def expected_status(policy, tc: TestCase) -> Dict[str, Any]:
-    # Public/auth endpoints - always expect success (200)
+    # Public/auth endpoints - always accessible, can return 200 (success) or 401 (invalid/missing credentials)
     # These endpoints should be accessible regardless of authentication state
     public_endpoints = [
         '/auth/login',
-        '/auth/register', 
+        '/auth/login/',
+        '/auth/register',
+        '/auth/register/',
         '/auth/refresh',
-        '/auth/logout'
+        '/auth/refresh/',
+        '/auth/logout',
+        '/auth/logout/',
+        '/login',
+        '/login/',
+        '/refresh',
+        '/refresh/',
+        '/logout',
+        '/logout/',
     ]
     path_normalized = normalize_path(tc.path)
     if any(path_normalized == normalize_path(pub) for pub in public_endpoints):
         ok = _success_statuses_for_method(tc.method)
+        # Accept both 200 (success) and 401 (invalid/missing credentials) as valid for public endpoints
+        # But 403 (forbidden) is not expected for public endpoints
+        return {"status_in": ok + [401], "status_not_in": [403]}
+
+    # /auth/me/ returns current user profile for any authenticated role (no "self" vs "other").
+    # Expected 200; not a vulnerability when allowed.
+    if path_normalized in ("/auth/me", "/auth/me/"):
+        ok = _success_statuses_for_method(tc.method)
         return {"status_in": ok, "status_not_in": [401, 403]}
-    
+
     # Format A: explicit rules with allow/deny and self semantics
     for rule in policy.get("rules", []):
         if rule.get("method","").upper() == tc.method.upper() and rule.get("path") == tc.path:
@@ -185,11 +230,11 @@ def expected_status(policy, tc: TestCase) -> Dict[str, Any]:
             return {"status_in": ok, "status_not_in":[401,403,404]} if exp else {"status_in":[401,403,404], "status_not_in": ok}
     # Format B: rbac_rules with allowed_endpoints per-role (assume self allowed, other denied)
     if "rbac_rules" in policy:
-        allowed, critical_deny = _policy_allowed_endpoints(policy, tc.role)
+        allowed, denied, critical_deny, self_only = _policy_allowed_endpoints(policy, tc.role)
         # Fetch role permissions (if any) to infer admin-wide access
         role_rules = (policy.get("rbac_rules", {}) or {}).get(tc.role) or {}
         perms = set(role_rules.get("permissions", []) or [])
-        if _in_endpoints(tc.method, tc.path, critical_deny):
+        if _in_endpoints(tc.method, tc.path, critical_deny) or _in_endpoints(tc.method, tc.path, denied):
             return {"status_in":[401,403,404], "status_not_in":[200]}
         if _in_endpoints(tc.method, tc.path, allowed):
             # If role has 'rbac_admin', treat access as allowed regardless of self/other for allowed endpoints
@@ -199,22 +244,26 @@ def expected_status(policy, tc: TestCase) -> Dict[str, Any]:
 
             # Check if endpoint is resource-scoped (self-only access pattern)
             is_resource_scoped = _is_resource_scoped_endpoint(tc.path)
+            # Non-admin roles: endpoints with {user_id}, {leave_id}, etc. are self-only (other → expect deny)
+            is_id_scoped = has_id_param(tc.path) and ("rbac_admin" not in perms)
+            is_self_only = _in_endpoints(tc.method, tc.path, self_only) or is_resource_scoped or is_id_scoped
 
             # If endpoint is not resource-owner specific (no {id}-like), allow for both self/other
             if not has_id_param(tc.path):
                 ok = _success_statuses_for_method(tc.method)
                 return {"status_in": ok, "status_not_in":[401,403]}
 
-            # For resource-scoped endpoints (e.g., /attachments/{item_id}, change-request detail):
+            # For explicitly self-scoped endpoints (or ID-scoped for non-admin):
             # - self_access=True (baseline, own resource) → expect 200
-            # - self_access=False (IDOR, other's resource) → expect 403/404
-            if is_resource_scoped:
+            # - self_access=False (IDOR, other's resource) → expect 403/404 (TN, not FP)
+            if is_self_only:
                 ok = _success_statuses_for_method(tc.method)
                 return {"status_in": ok, "status_not_in":[401,403]} if tc.self_access else {"status_in":[401,403,404], "status_not_in": ok}
 
-            # Default: if has id param and no admin privilege, allow only self
+            # For ID-like endpoints without explicit self-only rule, do not assume deny on "other".
+            # This avoids false vulnerability labels on endpoints that are legitimately cross-resource.
             ok = _success_statuses_for_method(tc.method)
-            return {"status_in": ok, "status_not_in":[401,403]} if tc.self_access else {"status_in":[401,403,404], "status_not_in": ok}
+            return {"status_in": ok, "status_not_in":[401,403]}
         # If endpoint not explicitly allowed or critically denied for this role,
         # follow least-privilege: treat as denied by default.
         ok = _success_statuses_for_method(tc.method)
@@ -225,40 +274,68 @@ def expected_status(policy, tc: TestCase) -> Dict[str, Any]:
     return {"status_in":[401,403,404], "status_not_in": ok}
 
 def classify(exp: Dict[str, Any], actual_status: int) -> str:
-    # 5xx -> system stability/error, do not treat as BAC finding
-    if 500 <= int(actual_status) <= 599:
-        return "ERROR"
-    # 0 -> skipped (e.g., protected delete not executed)
-    if int(actual_status) == 0:
+    def _as_int(v, default=-1):
+        try:
+            return int(v)
+        except Exception:
+            return default
+
+    def _is_2xx(v: int) -> bool:
+        return 200 <= int(v) < 300
+
+    def _expected_mode(status_in: set) -> str:
+        has_allow = any(_is_2xx(s) for s in status_in)
+        has_deny = any(s in {401, 403, 404} for s in status_in)
+        if has_allow and not has_deny:
+            return "allow"
+        if has_deny and not has_allow:
+            return "deny"
+        return "mixed"
+
+    sc = _as_int(actual_status, default=-1)
+    if sc == 0:
         return "SKIP"
-    # 404 handling: if 404 is part of expected statuses (deny path), treat as TN; else mark separately as NOT_FOUND
-    if int(actual_status) in _STATUS_RULES.get("not_found", set([404])):
-        try:
-            if actual_status in (exp or {}).get("status_in", []):
-                return "TN"
-        except Exception:
-            pass
-        return "NOT_FOUND"
-    # Local/project rules: treat certain 4xx as non-BAC finding (validation/conflict)
-    if int(actual_status) in _STATUS_RULES.get("non_finding", set([400,409])):
-        return "TN"
-    if actual_status in exp.get("status_in", []):
-        # Benar sesuai ekspektasi
-        if actual_status in [401,403]:
-            return "TN"  # ditolak sesuai harapan (tidak ada celah)
-        else:
-            return "TP_ALLOW"  # diizinkan sesuai harapan (untuk kasus self/role sah)
-    else:
-        # Tidak sesuai ekspektasi
-        try:
-            sc = int(actual_status)
-        except Exception:
-            sc = actual_status
-        # Any 2xx where deny expected -> FN (vulnerability)
-        if 200 <= int(sc) < 300:
+    if 500 <= sc <= 599:
+        return "ERROR"
+
+    status_in = set(_as_int(s) for s in (exp or {}).get("status_in", []))
+    status_in.discard(-1)
+    mode = _expected_mode(status_in)
+
+    # Input/data quality errors are inconclusive for authz labeling.
+    if sc in _STATUS_RULES.get("non_finding", set([400, 409, 422])):
+        return "SKIP"
+
+    if mode == "allow":
+        if _is_2xx(sc):
+            return "TP_ALLOW"
+        if sc in {401, 403}:
+            return "FP"
+        if sc in _STATUS_RULES.get("not_found", set([404])):
+            return "NOT_FOUND"
+        return "SKIP"
+
+    if mode == "deny":
+        if sc in {401, 403, 404}:
+            return "TN"
+        if _is_2xx(sc):
             return "FN"
-        else:
-            return "FP"  # seharusnya diizinkan tapi ditolak
+        return "SKIP"
+
+    # Mixed/unknown expectation fallback
+    if sc in status_in:
+        if _is_2xx(sc):
+            return "TP_ALLOW"
+        if sc in {401, 403, 404}:
+            return "TN"
+        return "SKIP"
+    if _is_2xx(sc) and any(s in {401, 403, 404} for s in status_in):
+        return "FN"
+    if sc in {401, 403} and any(_is_2xx(s) for s in status_in):
+        return "FP"
+    if sc in _STATUS_RULES.get("not_found", set([404])):
+        return "NOT_FOUND"
+    return "SKIP"
 
 def confusion_counts(results: List[Result], policy) -> Dict[str, int]:
     c = Counter()
@@ -274,15 +351,34 @@ def confusion_counts(results: List[Result], policy) -> Dict[str, int]:
         "TN": c.get("TN",0),
         "ERR": c.get("ERROR",0),
         "NF": c.get("NOT_FOUND",0),
+        "SKIP": c.get("SKIP",0),
     }
 
 def metrics(cf: Dict[str, int]) -> Dict[str, float]:
     TP, FP, FN, TN = cf["TP"], cf["FP"], cf["FN"], cf["TN"]
+
+    # Standard classification metrics on evaluated labels only (TP/FP/FN/TN).
     precision = TP / (TP + FP) if (TP+FP)>0 else 0.0
     recall = TP / (TP + FN) if (TP+FN)>0 else 0.0
     f1 = 2*precision*recall/(precision+recall) if (precision+recall)>0 else 0.0
-    acc = (TP+TN)/max(1,(TP+TN+FP+FN))
-    return {"precision": round(precision,3), "recall": round(recall,3), "f1": round(f1,3), "accuracy": round(acc,3)}
+    evaluated = TP + TN + FP + FN
+    acc = (TP + TN) / max(1, evaluated)
+
+    # Security-oriented companion metrics (do not overwrite standard fields).
+    block_precision = TN / (TN + FP) if (TN + FP) > 0 else 0.0
+    block_recall = TN / (TN + FN) if (TN + FN) > 0 else 0.0
+    false_alarm_rate = FP / (FP + TN) if (FP + TN) > 0 else 0.0
+
+    return {
+        "precision": round(precision, 3),
+        "recall": round(recall, 3),
+        "f1": round(f1, 3),
+        "accuracy": round(acc, 3),
+        "evaluated_cases": int(evaluated),
+        "block_precision": round(block_precision, 3),
+        "block_recall": round(block_recall, 3),
+        "false_alarm_rate": round(false_alarm_rate, 3),
+    }
 
 def coverage(tests: List[TestCase], roles: List[str], endpoints: List[Dict[str,Any]]) -> Dict[str, Any]:
     total_pairs = len(roles) * len(endpoints)

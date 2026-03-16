@@ -1,175 +1,173 @@
-# BYE BAC - Implementation Guide
-
-BYE BAC is an automated Broken Access Control (BAC) testing agent for RBAC-based REST APIs.
-It runs role-based authorization tests from OpenAPI + policy config, then produces JSON/Markdown reports and request/response artifacts.
+# BYE BAC: AI-Powered Broken Access Control Detection Agent
 
 ## Description
+BYE BAC is an automated security testing agent for detecting Broken Access Control (BAC) issues in REST APIs that use Role-Based Access Control (RBAC).  
+The project combines policy-aware test planning, role-based authentication, HTTP execution, and result evaluation to identify BAC categories such as BOLA/IDOR, privilege escalation, and authorization bypass.
 
-BYE BAC validates authorization behavior across roles and endpoints to detect BAC issues such as BOLA/IDOR, privilege escalation, and access bypass.  
-It combines deterministic policy checks and optional LLM-assisted planning/triage for faster security validation.
+This README is prepared as a compact research-oriented documentation file for submission/review purposes.
 
 ## Dataset Information
+The dataset is **self-curated** and **author-created** for this research (self-constructed experimental dataset; not from an internal ESS application, company backend, or production system). Full description and suggested Figshare/Methods text: `docs/SELF_CURATED_DATASET_LEGEND.txt`.
 
-The dataset is **self-curated** and **author-created** for this research. It is not from an internal ESS application, a real company backend, or any production system. It is a self-constructed experimental dataset used to evaluate the agent’s BAC/IDOR/BOLA detection.
+The project uses structured security testing data in `ai_agent/data`:
 
-Primary data sources are stored in `ai_agent/data/`:
+- `openapi.json`: OpenAPI specification (authored for the experimental API) used to discover endpoints, parameters, and payload shapes.
+- `roles.csv`: list of roles defined in the test environment.
+- `permissions.csv`: list of defined permissions/actions.
+- `role_permission.csv`: role-to-permission mapping.
+- `rbac_matrix.csv`: flattened role-permission matrix used by the orchestrator/planning logic.
+- `rbac_rules.json`: optional/legacy artifact (not the primary runtime source for policy checks).
 
-- `openapi.json`: OpenAPI specification (authored for the experimental API) used for endpoint discovery and payload/schema extraction
-- `roles.csv`: roles defined in the test environment
-- `permissions.csv`: permission catalog for the access control model
-- `role_permission.csv`: role-to-permission relationships
-- `rbac_matrix.csv`: flattened RBAC matrix for planning context
-
-Policy and auth config (also part of the self-curated dataset): `ai_agent/config/policy.yaml`, `ai_agent/config/auth.yaml`. Full description and Figshare/Methods text: see `docs/SELF_CURATED_DATASET_LEGEND.txt`.
+### Dataset Purpose
+- Define the access model and expected authorization behavior.
+- Support automatic generation of role-aware BAC test scenarios.
+- Provide machine-readable policy context for deterministic and LLM-assisted testing.
 
 ## Code Information
+Main code package: `ai_agent`
 
-Main runtime package is `ai_agent/`:
+Core modules:
+- `ai_agent/core/orchestrator.py`: end-to-end flow controller (load config, plan, execute, evaluate, report).
+- `ai_agent/core/tools_auth.py`: role login/token acquisition and identity mapping.
+- `ai_agent/core/tools_http.py`: HTTP execution with retries, auth header injection, and artifact persistence.
+- `ai_agent/core/evaluators.py`: expected-vs-actual comparison and classification metrics.
+- `ai_agent/core/reporters.py`: JSON/Markdown report generation.
+- `ai_agent/core/utils.py`: helper loaders/parsers for YAML/JSON/CSV/OpenAPI.
 
-- `ai_agent/core/orchestrator.py`: end-to-end execution flow
-- `ai_agent/core/tools_auth.py`: role authentication and token handling
-- `ai_agent/core/tools_http.py`: HTTP execution + artifact persistence
-- `ai_agent/core/evaluators.py`: expected-vs-actual classification (TP/TN/FP/FN)
-- `ai_agent/core/reporters.py`: JSON/Markdown report generation
+Runtime/config files:
+- `ai_agent/config/agent.yaml`
+- `ai_agent/config/auth.yaml`
+- `ai_agent/config/policy.yaml` (canonical runtime policy file)
 
-## What Is Included
+Entry points:
+- `byebac.py` (CLI)
+- `ai_agent/scripts/run_agent.py` (direct runner)
 
-- `byebac.py`: main CLI entrypoint
-- `ai_agent/config/`: runtime configs (`agent.yaml`, `auth.yaml`, `policy.yaml`)
-- `ai_agent/data/openapi.json`: target API specification
-- `ai_agent/core/`: orchestrator, HTTP/auth tools, evaluators, reporters
-- `ai_agent/runs/`: generated reports, logs, and artifacts
-
-## Current Command Set (Verified)
-
-Use from project root:
-
-- `python byebac.py /check`
-- `python byebac.py /runagent`
-- `python byebac.py /status`
-- `python byebac.py /report`
-- `python byebac.py /config`
-- `python byebac.py /clean`
-- `python byebac.py /specification`
-- `python byebac.py /information`
-
-Aliases:
-
-- `/runagent`: `run`, `start`
-- `/information`: `/info`, `info`
-- `/specification`: `/spec`, `spec`
-- `/clean`: `clean`, `cleanup`
-
-## Reviewer Quick Run
+## Usage Instructions
+### Step-by-Step Quick Start (Reviewer Friendly)
+Run from project root (`ai_agent_starter`):
 
 ```bash
+# 1) Install dependencies
 pip install -r requirements.txt
+
+# 2) Validate setup
+byebac /check
+
+# 3) Execute BAC scan
+byebac /runagent
+
+# 4) Check run summary
+byebac /status
+
+# 5) Open latest report path
+byebac /report
+```
+
+If `byebac` command is not available in your shell, use:
+
+```bash
 python byebac.py /check
 python byebac.py /runagent
 python byebac.py /status
 python byebac.py /report
 ```
 
-## Usage Instructions
+### 1) Environment setup
+On Windows PowerShell:
 
-1. Install dependencies (`pip install -r requirements.txt`).
-2. Configure runtime files in `ai_agent/config/` and set credentials/API keys in `.env`.
-3. Run `python byebac.py /check` to validate setup.
-4. Run `python byebac.py /runagent` to execute BAC testing.
-5. Inspect results via `python byebac.py /status` and `python byebac.py /report`.
-
-PowerShell helper scripts are under `scripts/`:
-
-- `.\scripts\setup_venv.ps1`
-- `.\scripts\activate_venv.ps1`
-- `. .\scripts\QUICK_SETUP.ps1`
-- `.\scripts\SETUP_CLI.ps1`
-
-Optional cleanup:
-
-```bash
-python byebac.py /clean
+```powershell
+./scripts/setup_venv.ps1
+./scripts/activate_venv.ps1
+pip install -r requirements.txt
 ```
 
-## Required Configuration
+Or manually:
 
-1. `ai_agent/config/agent.yaml`
-   - `base_url`
-   - `llm.summary_required` (recommended `false` for offline/restricted network test environments)
-2. `ai_agent/config/auth.yaml`
-   - role login settings and credential mapping
-3. `ai_agent/config/policy.yaml`
-   - authorization expectations (single canonical runtime policy file)
-4. `ai_agent/data/openapi.json`
-   - API endpoints and request schema source
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+pip install -r requirements.txt
+```
 
-And `.env` for credentials / API keys.
+### 2) Configure runtime inputs
+1. Update `ai_agent/config/agent.yaml` with your `base_url` and execution settings.  
+2. Update `ai_agent/config/auth.yaml` with login endpoint, credential fields, and role definitions.  
+3. Update `ai_agent/config/policy.yaml` with allow/deny RBAC expectations.  
+4. Ensure `ai_agent/data/openapi.json` and RBAC CSV files are present and aligned with target API behavior.  
+5. Set environment variables for credentials and API keys (if LLM features are enabled).
+
+### 3) Run the agent
+From project root:
+
+```bash
+python byebac.py /runagent
+```
+
+Alternative:
+
+```bash
+python ai_agent/scripts/run_agent.py
+```
+
+### 4) Output artifacts
+Results are saved in `ai_agent/runs`:
+- `BAC_Security_Test_Report-*.json`
+- `BAC_Security_Test_Report-*.md`
+- request/response artifacts for evidence and traceability
+
+Optional cleanup after testing:
+
+```bash
+byebac /clean
+```
 
 ## Requirements
-
+Minimum software/runtime requirements:
 - Python 3.14+ (project target)
-- `pip`
-- Network access to target API
-- Python dependencies in `requirements.txt` (e.g., `requests`, `pyyaml`, `python-dotenv`, `rich`, `openai`, `google-genai`, `pandas`)
+- pip
+- Network access to target API under test
 
-## Output Structure
-
-Reports:
-
-- `ai_agent/runs/BAC_Security_Test_Report-*.json`
-- `ai_agent/runs/BAC_Security_Test_Report-*.md`
-
-Artifacts (organized by date/role/type/target/method/endpoint):
-
-- `ai_agent/runs/artifacts/<YYYY_MM_DD>/<role>/<BAC_TYPE>/<target>/<METHOD>/<endpoint>/*.json`
-
-Logs:
-
-- `ai_agent/runs/logs/agent.log`
-
-## Deployment and Run Notes
-
-- If LLM provider is unreachable, run still completes when `llm.summary_required: false`.
-- Artifact files already mask sensitive headers/tokens before persistence.
-- BAC classification includes `TP/TN/FP/FN/ERR/NF/SKIP`; `SKIP` is excluded from core confusion decisions.
-- Placeholder-based tests are skipped when required IDs cannot be resolved (safer than injecting synthetic IDs).
+Python dependencies (from `requirements.txt`):
+- `openai>=1.12.0`
+- `requests>=2.31.0`
+- `pyyaml>=6.0`
+- `pandas>=2.0.0`
+- `python-dotenv>=1.0.0`
+- `rich>=13.0.0`
+- `google-generativeai>=0.8.0` (optional/fallback)
+- `google-genai>=0.2.0` (optional/preferred for Gemini)
+- `pyfiglet>=0.8.post1`
 
 ## Methodology
-
-High-level execution flow:
-
-1. Load OpenAPI/config/policy/auth inputs.
-2. Build role-endpoint test plan (deterministic and/or LLM-assisted).
-3. Authenticate per role and collect IDs/resources.
-4. Execute baseline + mutation scenarios.
-5. Evaluate observed responses against policy expectations.
-6. Generate JSON/Markdown reports and artifacts.
-
-## Recommended Final Check Before External Testing
-
-1. Run `/check` and confirm all required files pass.
-2. Confirm `base_url` points to intended test environment.
-3. Validate auth roles/credentials in `.env` + `auth.yaml`.
-4. Set `llm.summary_required: false` if environment has no stable outbound DNS/API access.
-5. Run `/runagent`, then inspect:
-   - `/status`
-   - latest `.md` report
-   - artifacts for key endpoints
-
-## License
-
-MIT License.
+High-level testing methodology:
+1. **Load Inputs**: read OpenAPI, RBAC matrix, policy, and auth settings.
+2. **Plan Tests**: generate BAC-oriented test plans (policy-first and/or OpenAPI-driven, optionally LLM-assisted).
+3. **Authenticate by Role**: obtain tokens/identities for each test persona.
+4. **Execute Requests**: run endpoint/mutation combinations across roles and resource IDs.
+5. **Evaluate**: compare observed status/result with expected policy behavior.
+6. **Classify Findings**: assign categories such as TP/TN/FP/FN and BAC type.
+7. **Report**: produce JSON/Markdown outputs and request/response artifacts.
 
 ## Citations
+If this project/dataset is used in a manuscript, cite:
+- The BYE BAC project repository (software citation).
+- OWASP Top 10 (for BAC context), especially A01: Broken Access Control.
 
-If used in research/reporting, cite:
+Suggested citation template (edit with your publication details):
 
-- BYE BAC software repository
-- OWASP Top 10 A01:2021 (Broken Access Control)
+```text
+Author(s). (Year). BYE BAC: AI-Powered Broken Access Control Detection Agent (Version x.y.z) [Software]. Repository URL
+```
+
+## License
+This project is distributed under the MIT License.
 
 ## Contribution Guidelines
+Contributions are welcome. Recommended process:
+1. Fork the repository and create a feature branch.
+2. Add or update tests/config samples when changing behavior.
+3. Keep changes focused and document rationale in commit messages.
+4. Open a pull request with a clear summary and validation steps.
 
-1. Create a focused feature/fix branch.
-2. Keep changes scoped and documented.
-3. Validate using `/check` and a sample `/runagent`.
-4. Submit PR with reproducible test steps.
+For security-related findings, include reproducible steps and minimal sensitive data in reports.

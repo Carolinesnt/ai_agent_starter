@@ -154,6 +154,12 @@ If this project/dataset is used in a manuscript, cite:
 - The BYE BAC project repository (software citation).
 - OWASP Top 10 (for BAC context), especially A01: Broken Access Control.
 
+**Code (Zenodo):**
+https://doi.org/10.5281/zenodo.18524561
+**Dataset (Figshare):**
+https://doi.org/10.6084/m9.figshare.31742872
+**Manuscript:** *(to be updated upon acceptance)*
+
 Suggested citation template (edit with your publication details):
 
 ```text
